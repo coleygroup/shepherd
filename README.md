@@ -3,6 +3,10 @@ This repository contains the code necessary to train and sample from ShEPhERD's 
 
 The preprint can be found here: (pending link to arxiv)
 
+<div style="text-align: center;">
+  <img src="./logo.svg" alt="Shepherd Score Logo" style="width: 200px; height: auto;">
+</div>
+
 ## Table of Contents
 1. [File Structure](##file-structure)
 2. [Environment](##environment)
