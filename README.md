@@ -109,6 +109,8 @@ The simplest way to run inference is to follow the Jupyter notebooks `RUNME_unco
 This repository does *not* contain the code to evaluate samples from ShEPhERD (e.g., evaluate their validity, RMSD upon relaxation, 3D similarity to a target structure, etc). All such evaluations can be found in the sister repository: https://github.com/coleygroup/shepherd-score. These repositories were made separate so that the functions within shepherd-score can be used for more general-purpose applications in ligand-based drug design, and for evaluating other 3D generative models besides ShEPhERD.
 
 
-## Copyright
+## License
 
-Copyright (c) 2024, Keir Adams; Coley Research Group
+This project is licensed under the MIT License -- see [LICENSE](./LICENSE) file for details.
+
+## Citation
