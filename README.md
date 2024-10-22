@@ -111,4 +111,4 @@ This repository does *not* contain the code to evaluate samples from ShEPhERD (e
 
 ## Copyright
 
-Copyright (c) 2024, Keir Adams; Coley Research Lab
+Copyright (c) 2024, Keir Adams; Coley Research Group
