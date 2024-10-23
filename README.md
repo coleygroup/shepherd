@@ -1,11 +1,15 @@
-# ShEPhERD (**S**hape, **E**lectrostatics, and **Ph**armacophores **E**xplicit **R**epresentation **D**iffusion)
-This repository contains the code necessary to train and sample from ShEPhERD's diffusion model. Note that ShEPhERD has a sister repository, shepherd-score (https://github.com/coleygroup/shepherd-score), that contains the code for generating/optimizing conformers, extracting interaction profiles, aligning interaction profiles, scoring 3D similarity, and evaluating generated samples from ShEPhERD (validity, 3D similarity, etc.). Both repositories are self-contained and have different installation requirements. Any dependencies on shepherd-score that are necessary to train or sample from ShEPhERD have been copied into `shepherd_score_utils/` for user convenience.
+# *ShEPhERD*
+This repository contains the code to train and sample from *ShEPhERD*'s diffusion generative model, which learns the joint distribution over 3D molecular structures and their shapes, electrostatics, and pharmacophores. At inference, *ShEPhERD* can be used to generate new molecules in their 3D conformations that exhibit target 3D interaction profiles.
 
-The preprint can be found here: (pending link to arxiv)
+Note that *ShEPhERD* has a sister repository, [shepherd-score](https://github.com/coleygroup/shepherd-score), that contains the code to generate/optimize conformers, extract interaction profiles, align molecules via their 3D interaction profiles, score 3D similarity, and evaluate samples from *ShEPhERD* by their validity, 3D similarity to a reference structure, etc. Both repositories are self-contained and have different installation requirements. The few dependencies on [shepherd-score](https://github.com/coleygroup/shepherd-score) that are necessary to train or to sample from *ShEPhERD* have been copied into `shepherd_score_utils/` for user convenience.
 
-<div style="text-align: center;">
-  <img src="./shepherd_logo.svg" alt="Shepherd Logo" style="width: 400px; height: auto;">
-</div>
+The preprint can be found here: [ShEPhERD: Diffusing shape, electrostatics, and pharmacophores for bioisosteric drug design](https://arxiv.org)
+
+<p align="center">
+  <img width="400" src="./shepherd_logo.svg">
+</p>
+
+<sub><sup>1</sup> **ShEPhERD**: **S**hape, **E**lectrostatics, and **Ph**armacophores **E**xplicit **R**epresentation **D**iffusion</sub>
 
 ## Table of Contents
 1. [File Structure](##file-structure)
@@ -46,7 +50,7 @@ The preprint can be found here: (pending link to arxiv)
 
 ## Environment
 
-`environment.yml` contains the conda environment that we used for training and running ShEPhERD. 
+`environment.yml` contains the conda environment that we used for training and running *ShEPhERD*. 
 
 **We** followed these steps to create a suitable conda environment, which worked on our Linux system. Please note that this exact installation procedure may depend on your system, particularly your cuda version.
 
@@ -87,8 +91,8 @@ pip install numpy --upgrade
 ## Training and inference data
 `conformers/` contains the 3D structures of the natural products, PDB ligands, and fragments that we used in our experiments in the preprint. It also includes the 100 test-set structures from GDB-17 that we used in our conditional generation evaluations. 
 
-`conformers/gdb/example_molblock_charges.pkl` contains *sample* training data from our ShEPhERD-GDB-17 training dataset.
-`conformers/moses_aq/example_molblock_charges.pkl` contains *sample* training data from our ShEPhERD-MOSES_aq training dataset.
+`conformers/gdb/example_molblock_charges.pkl` contains *sample* training data from our *ShEPhERD*-GDB-17 training dataset.
+`conformers/moses_aq/example_molblock_charges.pkl` contains *sample* training data from our *ShEPhERD*-MOSES_aq training dataset.
 
 The full training data for both datasets (<10GB each) can be accessed from this Dropbox link: https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0
 
@@ -105,12 +109,12 @@ Note that the trained checkpoints in `shepherd_chkpts/` were obtained after trai
 
 The simplest way to run inference is to follow the Jupyter notebooks `RUNME_unconditional_generation_MOSESaq.ipynb` and `RUNME_conditional_generation_MOSESaq.ipynb`. 
 
-`paper_experiments` also contain scripts that we used to run the experiments in our preprint. Each of these scripts should be copied into the parent directory (same directory as this README) before being called from the command line. Some of the scripts (`paper_experiments/run_inference_*_unconditional_*_.py`) take a few additional command-line arguments, which are detailed in those corresponding scripts by argparse commands.
+`paper_experiments/` also contain scripts that we used to run the experiments in our preprint. Each of these scripts should be copied into the parent directory (same directory as this README) before being called from the command line. Some of the scripts (`paper_experiments/run_inference_*_unconditional_*_.py`) take a few additional command-line arguments, which are detailed in those corresponding scripts by argparse commands.
 
 
 ## Evaluations
 
-This repository does *not* contain the code to evaluate samples from ShEPhERD (e.g., evaluate their validity, RMSD upon relaxation, 3D similarity to a target structure, etc). All such evaluations can be found in the sister repository: https://github.com/coleygroup/shepherd-score. These repositories were made separate so that the functions within shepherd-score can be used for more general-purpose applications in ligand-based drug design. We also encourage others to use shepherd-score to evaluate other 3D generative models besides ShEPhERD.
+This repository does *not* contain the code to evaluate samples from *ShEPhERD* (e.g., evaluate their validity, RMSD upon relaxation, 3D similarity to a target structure, etc). All such evaluations can be found in the sister repository: https://github.com/coleygroup/shepherd-score. These repositories were made separate so that the functions within [shepherd-score](https://github.com/coleygroup/shepherd-score) can be used for more general-purpose applications in ligand-based drug design. We also encourage others to use [shepherd-score](https://github.com/coleygroup/shepherd-score) to evaluate other 3D generative models besides *ShEPhERD*.
 
 
 ## License
@@ -118,3 +122,5 @@ This repository does *not* contain the code to evaluate samples from ShEPhERD (e
 This project is licensed under the MIT License -- see [LICENSE](./LICENSE) file for details.
 
 ## Citation
+If you use or adapt *ShEPhERD* or [shepherd-score](https://github.com/coleygroup/shepherd-score) in your work, please cite us:
+
