@@ -90,7 +90,7 @@ pip install numpy --upgrade
 `conformers/gdb/example_molblock_charges.pkl` contains *sample* training data from our ShEPhERD-GDB-17 training dataset.
 `conformers/moses_aq/example_molblock_charges.pkl` contains *sample* training data from our ShEPhERD-MOSES_aq training dataset.
 
-The full training data for both datasets (<10GB each) will be made publicly available for download within ~1-2 weeks. Please check this repository at a later date for corresponding links to Figshare/Dropbox/Google-Drive.
+The full training data for both datasets (<10GB each) can be accessed from this Dropbox link: https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0
 
 
 ## Training
