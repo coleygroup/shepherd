@@ -37,7 +37,7 @@ The preprint can be found here: (pending link to arxiv)
 ├── lightning_module.py                         # pytorch-lightning modules and training pipeline
 ├── datasets.py                                 # torch_geometric dataset class (for training)
 ├── inference.py                                # inference functions; see Jupyter notebooks for example uses
-├── RUNME_conditional_generation_MOSESaq.ipynb  # Jupyter notebook conditional generation, using MOSES_aq P(x1,x3,x4) model
+├── RUNME_conditional_generation_MOSESaq.ipynb  # Jupyter notebook for conditional generation, using MOSES_aq P(x1,x3,x4) model
 ├── RUNME_unconditional_generation.ipynb        # Jupyter notebook for unconditional generation, for all models
 ├── environment.yml                             # conda environment requirements
 └── README.md
