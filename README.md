@@ -125,10 +125,14 @@ This project is licensed under the MIT License -- see [LICENSE](./LICENSE) file 
 If you use or adapt *ShEPhERD* or [shepherd-score](https://github.com/coleygroup/shepherd-score) in your work, please cite us:
 
 ```bibtex
-@article{adams2024shepherd,
-  title={ShEPhERD: Diffusing shape, electrostatics, and pharmacophores for bioisosteric drug design},
-  author={Adams, Keir and Abeywardane, Kento and Fromer, Jenna and Coley, Connor W},
-  journal={arXiv preprint arXiv:2411.04130},
-  year={2024}
+@article{adamsShEPhERD2024,
+  title = {{{ShEPhERD}}: {{Diffusing}} Shape, Electrostatics, and Pharmacophores for Bioisosteric Drug Design},
+  author = {Adams, Keir and Abeywardane, Kento and Fromer, Jenna and Coley, Connor W.},
+  year = {2024},
+  number = {arXiv:2411.04130},
+  eprint = {2411.04130},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2411.04130},
+  archiveprefix = {arXiv}
 }
 ```
