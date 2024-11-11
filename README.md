@@ -3,7 +3,7 @@ This repository contains the code to train and sample from *ShEPhERD*'s diffusio
 
 Note that *ShEPhERD* has a sister repository, [shepherd-score](https://github.com/coleygroup/shepherd-score), that contains the code to generate/optimize conformers, extract interaction profiles, align molecules via their 3D interaction profiles, score 3D similarity, and evaluate samples from *ShEPhERD* by their validity, 3D similarity to a reference structure, etc. Both repositories are self-contained and have different installation requirements. The few dependencies on [shepherd-score](https://github.com/coleygroup/shepherd-score) that are necessary to train or to sample from *ShEPhERD* have been copied into `shepherd_score_utils/` for user convenience.
 
-The preprint can be found here (arxiv link coming soon): [ShEPhERD: Diffusing shape, electrostatics, and pharmacophores for bioisosteric drug design](https://coley.mit.edu/publications/2024/ShEPhERD.pdf)
+The preprint can be found on arXiv: [ShEPhERD: Diffusing shape, electrostatics, and pharmacophores for bioisosteric drug design](https://arxiv.org/abs/2411.04130)
 
 <p align="center">
   <img width="400" src="./shepherd_logo.svg">
