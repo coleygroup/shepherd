@@ -84,8 +84,6 @@ class Model(torch.nn.Module):
         
         
         # heterogeneous graph encoding (in decoder, before joint global code processing)
-            # change to only encode a specified subset of the variables (must be in the same absolute reference frame, and exclude COM variable)
-            # we could project any re-centered variables back into the absolute frame if we wish, but this complicates things
         self.decoder_joint_heterogeneous_graph_encoder = None
         if 'decoder_heterogeneous_graph_encoder' in params:
             if params['decoder_heterogeneous_graph_encoder']['use']:
