@@ -755,7 +755,8 @@ class HeteroDataset(torch_geometric.data.Dataset):
         return data
     
     
-    
+    # for compatibility with other PyG versions
     def __len__(self): return self.length
     def len(self): return self.__len__()
     def getitem(self, k): return self.__getitem__(k)
+    def get(self, k): return self.__getitem__(k)
