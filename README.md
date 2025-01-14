@@ -111,6 +111,8 @@ The simplest way to run inference is to follow the Jupyter notebooks `RUNME_unco
 
 `paper_experiments/` also contain scripts that we used to run the experiments in our preprint. Each of these scripts should be copied into the parent directory (same directory as this README) before being called from the command line. Some of the scripts (`paper_experiments/run_inference_*_unconditional_*_.py`) take a few additional command-line arguments, which are detailed in those corresponding scripts by argparse commands.
 
+The inference script now supports conditional generation of molecules that contain a superset of the target profile's pharmacophores via partial inpainting. [1/13/2025]
+
 
 ## Evaluations
 
