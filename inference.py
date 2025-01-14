@@ -157,6 +157,90 @@ def inference_sample(
     pharm_direction = np.zeros((5,3)),
     
 ):
+    """
+    Runs inference of ShEPhERD to sample `batch_size` number of molecules.
+
+    Arguments
+    ---------
+    model_pl : PyTorch Lightning module.
+
+    batch_size : int Number of molecules to sample in a single batch.
+
+    N_x1 : int Number of atoms to diffuse.
+    N_x4 : int Number of pharmacophores to diffuse.
+        If inpainting, can be greater than len(pharm_types) for partial pharmacophore conditioning.
+
+    unconditional : bool to toggle unconditional generation.
+
+    prior_noise_scale : float (default = 1.0) Noise scale of the prior distribution.
+    denoising_noise_scale : float (default = 1.0) Noise scale for each denoising step.
+    
+    inject_noise_at_ts : list[int] (default = []) Time steps to inject extra noise.
+    inject_noise_scales : list[int] (default = []) Scale of noise to inject at above time steps.
+     
+    harmonize : bool (default=False) Whether to use harmonization.
+    harmonize_ts : list[int] (default = []) Time steps to to harmonization.
+    harmonize_jumps : list[int] (default = []) Length of time to harmonize (in time steps).
+
+    *all the below options are only relevant if unconditional is False*
+    inpaint_x2_pos : bool (default=False) Toggle inpainting.
+        Note that x2 is implicitly modeled via x3.
+
+    inpaint_x3_pos : bool (default=False)
+    inpaint_x3_x : bool (default=False)
+
+    inpaint_x4_pos : bool (default=False)
+    inpaint_x4_direction : bool (default=False)
+    inpaint_x4_type : bool (default=False)
+    
+    stop_inpainting_at_time_x2 : float (default = 0.0) Time step to stop inpainting.
+        t=0.0 implies that inpainting doesn't stop.
+    add_noise_to_inpainted_x2_pos : float (default = 0.0) Scale of noise to add to inpainted
+        values.
+    
+    stop_inpainting_at_time_x3 : float (default = 0.0)
+    add_noise_to_inpainted_x3_pos : float (default = 0.0)
+    add_noise_to_inpainted_x3_x : float (default = 0.0)
+    
+    stop_inpainting_at_time_x4 : float (default = 0.0)
+    add_noise_to_inpainted_x4_pos : float (default = 0.0)
+    add_noise_to_inpainted_x4_direction : float (default = 0.0)
+    add_noise_to_inpainted_x4_type : float (default = 0.0)
+    
+    *these are the inpainting targets*
+    center_of_mass : np.ndarray (3,) (default = np.zeros(3)) Must be supplied if target molecule is
+        not already centered.
+    surface : np.ndarray (75,3) (default = np.zeros((75,3)) Surface point coordinates.
+    electrostatics : np.ndarray (75,) (default = np.zeros(75)) Electrostatics at each surface point.
+    pharm_types : np.ndarray (<=N_x4,) (default = np.zeros(5, dtype = int)) Pharmacophore types.
+    pharm_pos : np.ndarray (<=N_x4,3) (default = np.zeros((5,3))) Pharmacophore positions as
+        coordinates.
+    pharm_direction : np.ndarray (<=N_x4,3) (default = np.zeros((5,3))) Pharmacophore directions as
+        unit vectors.
+
+    Returns
+    -------
+    generated_structures : List[Dict]
+        Output dictionary is structured as:
+        'x1': {
+                'atoms': np.ndarray (N_x1,) of ints for atomic numbers.
+                'bonds': np.ndarray of bond types between every atom pair.
+                'positions': np.ndarray (N_x1, 3) Coordinates of atoms.
+            },
+            'x2': {
+                'positions': np.ndarray (75, 3) Coordinates of surface points.
+            },
+            'x3': {
+                'charges': np.ndarray (75, 3) ESP at surface points.
+                'positions': np.ndarray (75, 3) Coordinates of surface points.
+            },
+            'x4': {
+                'types': np.ndarray (N_x4,) of ints for pharmacophore types.
+                'positions': np.ndarray (N_x4, 3) Coordinates of pharmacophores.
+                'directions': np.ndarray (N_x4, 3) Unit vectors of pharmacophores.
+            },
+        }
+    """
     
     params = model_pl.params
     
@@ -167,7 +251,13 @@ def inference_sample(
     
     
     ####### Defining inpainting targets ########
-    
+
+    do_partial_inpainting = False
+    assert len(pharm_direction) == len(pharm_pos) and len(pharm_pos) == len(pharm_types)
+    assert N_x4 >= len(pharm_pos)
+    if N_x4 > len(pharm_pos):
+        do_partial_inpainting = True
+
     # centering about provided center of mass (of x1)
     surface = surface - center_of_mass
     pharm_pos = pharm_pos - center_of_mass
@@ -519,17 +609,38 @@ def inference_sample(
     
     if (x4_t > stop_inpainting_at_time_x4):
         if inpaint_x4_pos:
-            x4_pos_t = torch.cat([x4_pos_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+            # x4_pos_t_inpaint = torch.cat([x4_pos_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+            x4_pos_t_inpaint = x4_pos_inpainting_trajectory[x4_t].repeat(batch_size, 1, 1)
+            if do_partial_inpainting:
+                x4_pos_t = x4_pos_t.reshape(batch_size, -1, 3)
+                x4_pos_t[:, :x4_pos_t_inpaint.shape[1]] = x4_pos_t_inpaint
+                x4_pos_t = x4_pos_t.reshape(-1, 3)
+            else:
+                x4_pos_t = x4_pos_t_inpaint.reshape(-1,3)
         if inpaint_x4_direction:
-            x4_direction_t = torch.cat([x4_direction_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+            # x4_direction_t_inpaint = torch.cat([x4_direction_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+            x4_direction_t_inpaint = x4_direction_inpainting_trajectory[x4_t].repeat(batch_size, 1, 1)
+            if do_partial_inpainting:
+                x4_direction_t = x4_direction_t.reshape(batch_size, -1, 3)
+                x4_direction_t[:, :x4_direction_t_inpaint.shape[1]] = x4_direction_t_inpaint
+                x4_direction_t = x4_direction_t.reshape(-1, 3)
+            else:
+                x4_direction_t = x4_direction_t_inpaint.reshape(-1,3)
         if inpaint_x4_type:
-            x4_x_t = torch.cat([x4_x_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+            # x4_x_t_inpaint = torch.cat([x4_x_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+            x4_x_t_inpaint = x4_x_inpainting_trajectory[x4_t].repeat(batch_size, 1, 1)
+            if do_partial_inpainting:
+                x4_x_t = x4_x_t.reshape(batch_size, -1, num_pharm_types)
+                x4_x_t[:, :x4_x_t_inpaint.shape[1]] = x4_x_t_inpaint
+                x4_x_t = x4_x_t.reshape(-1, num_pharm_types)
+            else:
+                x4_x_t = x4_x_t_inpaint.reshape(-1, num_pharm_types)
         
     
     
     ######## Main Denoising Loop #########
     
-    pbar = tqdm(total= T + sum(harmonize_jumps) * int(harmonize))
+    pbar = tqdm(total= T + sum(harmonize_jumps) * int(harmonize), position=0, leave=True)
     
     x1_t_x_list = []
     x1_t_bond_edge_x_list = []
@@ -609,20 +720,51 @@ def inference_sample(
             
         if (x4_t > stop_inpainting_at_time_x4):
             if inpaint_x4_pos:
-                x4_pos_t = torch.cat([x4_pos_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+                x4_pos_t_inpaint = torch.cat([x4_pos_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
                 noise = torch.randn_like(x4_pos_t)
                 noise[virtual_node_mask_x4] = 0.0
-                x4_pos_t = x4_pos_t + add_noise_to_inpainted_x4_pos * noise
+                if do_partial_inpainting:
+                    x4_pos_t_inpaint = x4_pos_t_inpaint.reshape(batch_size, -1, 3)
+                    noise = noise.reshape(batch_size, -1, 3)[:, :x4_pos_t_inpaint.shape[1]]
+
+                    x4_pos_t_inpaint = x4_pos_t_inpaint + add_noise_to_inpainted_x4_pos * noise
+                    x4_pos_t = x4_pos_t.reshape(batch_size, -1, 3)
+                    x4_pos_t[:, :x4_pos_t_inpaint.shape[1]] = x4_pos_t_inpaint
+                    x4_pos_t = x4_pos_t.reshape(-1, 3)
+                else:
+                    x4_pos_t_inpaint = x4_pos_t_inpaint + add_noise_to_inpainted_x4_pos * noise
+                    x4_pos_t = x4_pos_t_inpaint
+
             if inpaint_x4_direction:
-                x4_direction_t = torch.cat([x4_direction_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+                x4_direction_t_inpaint = torch.cat([x4_direction_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
                 noise = torch.randn_like(x4_direction_t)
                 noise[virtual_node_mask_x4] = 0.0
-                x4_direction_t = x4_direction_t + add_noise_to_inpainted_x4_direction * noise
+                if do_partial_inpainting:
+                    x4_direction_t_inpaint = x4_direction_t_inpaint.reshape(batch_size, -1, 3)
+                    noise = noise.reshape(batch_size, -1, 3)[:, :x4_direction_t_inpaint.shape[1]]
+
+                    x4_direction_t_inpaint = x4_direction_t_inpaint + add_noise_to_inpainted_x4_direction * noise
+                    x4_direction_t = x4_direction_t.reshape(batch_size, -1, 3)
+                    x4_direction_t[:, :x4_direction_t_inpaint.shape[1]] = x4_direction_t_inpaint
+                    x4_direction_t = x4_direction_t.reshape(-1, 3)
+                else:
+                    x4_direction_t_inpaint = x4_direction_t_inpaint + add_noise_to_inpainted_x4_direction * noise
+                    x4_direction_t = x4_direction_t_inpaint
             if inpaint_x4_type:
-                x4_x_t = torch.cat([x4_x_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
+                x4_x_t_inpaint = torch.cat([x4_x_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
                 noise = torch.randn_like(x4_x_t)
                 noise[virtual_node_mask_x4] = 0.0
-                x4_x_t = x4_x_t + add_noise_to_inpainted_x4_type * noise
+                if do_partial_inpainting:
+                    x4_x_t_inpaint = x4_x_t_inpaint.reshape(batch_size, -1, num_pharm_types)
+                    noise = noise.reshape(batch_size, -1, num_pharm_types)[:, :x4_x_t_inpaint.shape[1]]
+
+                    x4_x_t_inpaint = x4_x_t_inpaint + add_noise_to_inpainted_x4_type * noise
+                    x4_x_t = x4_x_t.reshape(batch_size, -1, num_pharm_types)
+                    x4_x_t[:, :x4_x_t_inpaint.shape[1]] = x4_x_t_inpaint
+                    x4_x_t = x4_x_t.reshape(-1, num_pharm_types)
+                else:
+                    x4_x_t_inpaint = x4_x_t_inpaint + add_noise_to_inpainted_x4_type * noise
+                    x4_x_t = x4_x_t_inpaint
         
         
         # get noise parameters for current timestep
