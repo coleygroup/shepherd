@@ -1,0 +1,3 @@
+# *ShEPhERD* checkpoints for PyTorch 2.5.1
+Converted from the original model weights trained using PyTorch Lightning v1.2 to v2.5.1 using `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`. The original model weights can be found at:
+[https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0)
