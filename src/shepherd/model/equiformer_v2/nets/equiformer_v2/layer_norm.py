@@ -5,7 +5,7 @@
     2. The difference from `layer_norm.py` is that all type-L vectors have 
     the same number of channels and input features are of shape (N, sphere_basis, C).
 '''
-
+import math
 import torch
 import torch.nn as nn
 
@@ -57,7 +57,7 @@ class EquivariantLayerNormArray(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, sphere_basis, C]
@@ -149,7 +149,7 @@ class EquivariantLayerNormArraySphericalHarmonics(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, std_balance_degrees={self.std_balance_degrees})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, sphere_basis, C]
@@ -224,7 +224,7 @@ class EquivariantRMSNormArraySphericalHarmonics(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, sphere_basis, C]
@@ -307,7 +307,7 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, centering={self.centering}, std_balance_degrees={self.std_balance_degrees})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, sphere_basis, C]
