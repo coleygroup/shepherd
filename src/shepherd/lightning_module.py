@@ -9,7 +9,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from model.model import Model
+from shepherd.model.model import Model
 
 class LightningModule(pl.LightningModule):
     
@@ -58,30 +58,41 @@ class LightningModule(pl.LightningModule):
         input_dict = {}
         
         if self.params['dataset']['compute_x1']:
+            x1_data = data['x1']
+            try:
+                # New data structure for PyG > 2.0.4
+                edge_store = data['x1', 'bond', 'x1']
+                bond_edge_mask = edge_store.mask
+                bond_edge_index = edge_store.edge_index
+                bond_edge_x = edge_store.x_forward_noised
+                bond_edge_x_noise = edge_store.x_noise
+            except (AttributeError, KeyError):
+                # Fallback to old data structure for backward compatibility
+                bond_edge_mask = x1_data.bond_edge_mask
+                bond_edge_x = x1_data.bond_edge_x_forward_noised
+                bond_edge_x_noise = x1_data.bond_edge_x_noise
+                try:
+                    bond_edge_index = data['x1', 'x1'].bond_edge_index
+                except (AttributeError, KeyError):
+                    bond_edge_index = x1_data.bond_edge_index
+
             input_dict['x1'] = {
-                
-                # the decoder/denoiser uses the forward-noised structures
                 'decoder': {
-                    'pos': data['x1'].pos_forward_noised, # this is the structure after forward-noising
-                    'x': data['x1'].x_forward_noised, # this is the structure after forward-noising
-                    'batch': data['x1'].batch,
-                    
-                    'bond_edge_mask': data['x1'].bond_edge_mask, # used only for denoising loss calculation
-                    'bond_edge_index': data['x1', 'x1'].bond_edge_index, #data['x1'].bond_edge_index,
-                    'bond_edge_x': data['x1'].bond_edge_x_forward_noised, # this is the structure after forward-noising
-                    
-                    'timestep': data['x1'].timestep,
-                    'alpha_t': data['x1'].alpha_t,
-                    'sigma_t': data['x1'].sigma_t,
-                    'alpha_dash_t': data['x1'].alpha_dash_t,
-                    'sigma_dash_t': data['x1'].sigma_dash_t,
-                    
-                    'virtual_node_mask': data['x1'].virtual_node_mask,
-                    
-                    'pos_noise': data['x1'].pos_noise, # this is the added (gaussian) noise
-                    'x_noise': data['x1'].x_noise, # this is the added (gaussian) noise
-                    'bond_edge_x_noise': data['x1'].bond_edge_x_noise, # this is the added (gaussian) noise
-                    
+                    'pos': x1_data.pos_forward_noised,
+                    'x': x1_data.x_forward_noised,
+                    'batch': x1_data.batch,
+                    'bond_edge_mask': bond_edge_mask,
+                    'bond_edge_index': bond_edge_index,
+                    'bond_edge_x': bond_edge_x,
+                    'timestep': x1_data.timestep,
+                    'alpha_t': x1_data.alpha_t,
+                    'sigma_t': x1_data.sigma_t,
+                    'alpha_dash_t': x1_data.alpha_dash_t,
+                    'sigma_dash_t': x1_data.sigma_dash_t,
+                    'virtual_node_mask': x1_data.virtual_node_mask,
+                    'pos_noise': x1_data.pos_noise,
+                    'x_noise': x1_data.x_noise,
+                    'bond_edge_x_noise': bond_edge_x_noise,
                 },
             }
         

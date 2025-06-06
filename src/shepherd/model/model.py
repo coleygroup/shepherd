@@ -8,19 +8,19 @@ import torch_scatter
 import torch_geometric
 from torch_geometric.nn import radius_graph
 
-from .egnn.egnn import EGNN, MultiLayerPerceptron, GaussianSmearing
-from .equiformer_v2_encoder import EquiformerV2
+from shepherd.model.egnn.egnn import EGNN, MultiLayerPerceptron, GaussianSmearing
+from shepherd.model.equiformer_v2_encoder import EquiformerV2
 
-from equiformer_v2.nets.equiformer_v2.so3 import SO3_Embedding, SO3_Grid
-from equiformer_v2.nets.equiformer_v2.transformer_block import FeedForwardNetwork
-from equiformer_v2.nets.equiformer_v2.module_list import ModuleListInfo
+from shepherd.model.equiformer_v2.nets.equiformer_v2.so3 import SO3_Embedding, SO3_Grid
+from shepherd.model.equiformer_v2.nets.equiformer_v2.transformer_block import FeedForwardNetwork
+from shepherd.model.equiformer_v2.nets.equiformer_v2.module_list import ModuleListInfo
 
 
-from utils.add_virtual_edges_to_edge_index import add_virtual_edges_to_edge_index
-from utils.positional_encoding import positional_encoding
+from shepherd.model.utils.add_virtual_edges_to_edge_index import add_virtual_edges_to_edge_index
+from shepherd.model.utils.positional_encoding import positional_encoding
 
 import e3nn
-from equiformer_operations import FeedForwardNetwork_equiformer, convert_e3nn_to_equiformerv2, convert_equiformerv2_to_e3nn
+from shepherd.model.equiformer_operations import FeedForwardNetwork_equiformer, convert_e3nn_to_equiformerv2, convert_equiformerv2_to_e3nn
 
 
 def remap_values(remapping_tuple, input_tensor):
@@ -45,7 +45,7 @@ def display_dict(d, indent=''):
         print(indent + key)
         value = d[key]
         if isinstance(value, dict):
-            print_dict_key_structure(value, indent = indent + '    ')
+            display_dict(value, indent = indent + '    ')
 
 
 class Model(torch.nn.Module):

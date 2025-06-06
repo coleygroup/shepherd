@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import radius_graph
 
-from ocpmodels.common.utils import (
+from shepherd.model.equiformer_v2.ocpmodels.common.utils import (
     compute_neighbors,
     conditional_grad,
     get_pbc_distances,
