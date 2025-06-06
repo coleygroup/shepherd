@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shepherd"
+version = "0.2.0"
+description = "ShEPhERD: Diffusing Shape, Electrostatics, and Pharmacophores for Drug Design"
+authors = [
+    {name = "Keir Adams"},
+    {name = "Kento Abeywardane", email = "kento@mit.edu"}
+]
+requires-python = ">=3.8"
+dependencies = [
+    "torch",
+    "torch-geometric",
+    "pytorch-lightning",
+    "rdkit",
+    "e3nn",
+    "open3d",
+    "numpy",
+    "matplotlib",
+    "tqdm",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "flake8>=6.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/coleygroup/shepherd"
+"Bug Tracker" = "https://github.com/coleygroup/shepherd/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["*.so", "*.dylib", "*.dll"]
+
+[tool.black]
+line-length = 88
+target-version = ["py38", "py39", "py310"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+addopts = "--cov=shepherd" 
