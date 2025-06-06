@@ -19,19 +19,17 @@ import datetime
 import multiprocessing
 from tqdm import tqdm
 
-import sys
-sys.path.insert(-1, "model/")
-sys.path.insert(-1, "model/equiformer_v2")
-
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
 from torch_geometric.data import HeteroData
 
-from model.model import Model
-from lightning_module import LightningModule
-from datasets import HeteroDataset
+from shepherd.model.model import Model
+from shepherd.lightning_module import LightningModule
+from shepherd.datasets import HeteroDataset
+
+from lightning_fabric.utilities.seed import seed_everything
 
 import importlib
 
@@ -52,7 +50,7 @@ if __name__ == '__main__':
     parser.add_argument("seed", type=int)
     args = parser.parse_args()
     
-    pl.utilities.seed.seed_everything(seed = args.seed, workers = True)
+    seed_everything(seed = args.seed, workers = True)
     
     params = importlib.import_module(f'parameters.{args.model_name}').params
     
@@ -60,7 +58,7 @@ if __name__ == '__main__':
     if params['data'] == 'GDB17':
         # sample data
         molblocks_and_charges = []
-        with open(f'conformers/gdb/example_molblock_charges.pkl', 'rb') as f:
+        with open(f'../data/conformers/gdb/example_molblock_charges.pkl', 'rb') as f:
             molblocks_and_charges = pickle.load(f) 
         """
         # full dataset
@@ -81,7 +79,7 @@ if __name__ == '__main__':
     if params['data'] == 'MOSES_aq':
         # sample data
         molblocks_and_charges = []
-        with open(f'conformers/moses_aq/example_molblock_charges.pkl', 'rb') as f:
+        with open(f'../data/conformers/moses_aq/example_molblock_charges.pkl', 'rb') as f:
             molblocks_and_charges = pickle.load(f)    
         """
         # full dataset
@@ -207,10 +205,10 @@ if __name__ == '__main__':
         
         devices = params['training']['num_gpus'] if cuda_available else "auto",
         
-        strategy = DDPStrategy(find_unused_parameters=True) if (params['training']['num_gpus'] > 1 and cuda_available) else None,
+        strategy = DDPStrategy(find_unused_parameters=True) if (params['training']['num_gpus'] > 1 and cuda_available) else 'auto',
         precision = 32,
         
-        terminate_on_nan = True,
+        detect_anomaly = True,
     )
     
     model_pl = LightningModule(params)
