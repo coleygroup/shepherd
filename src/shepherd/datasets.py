@@ -1,13 +1,13 @@
 import open3d 
-from shepherd_score_utils.generate_point_cloud import (
+from shepherd.shepherd_score_utils.generate_point_cloud import (
     get_atom_coords, 
     get_atomic_vdw_radii, 
     get_molecular_surface,
     get_electrostatics,
     get_electrostatics_given_point_charges,
 )
-from shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
-from shepherd_score_utils.conformer_generation import update_mol_coordinates
+from shepherd.shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
+from shepherd.shepherd_score_utils.conformer_generation import update_mol_coordinates
 
 import rdkit
 import numpy as np
@@ -163,7 +163,7 @@ class HeteroDataset(torch_geometric.data.Dataset):
         # this uses the same noise schedule for both positions and atom types/features
         
         data = {}
-        data['timestep'] = torch.as_tensor(np.array([t]))
+        data['timestep'] = torch.tensor([t], dtype=torch.long)
 
         atom_types = [self.atom_types_x1.index(a.GetSymbol()) for a in mol.GetAtoms()]
         if self.formal_charge_diffusion:
@@ -189,16 +189,16 @@ class HeteroDataset(torch_geometric.data.Dataset):
             else:
                 bond_type = bond_types_dict[str(bond.GetBondType())]
                 bond_types.append(bond_type)
-        data['bond_edge_mask'] = torch.as_tensor(np.array(bond_types) != 0, dtype = torch.bool) # True indicates a real bond
+        data['bond_edge_mask'] = torch.from_numpy((np.array(bond_types) != 0).copy()).bool() # True indicates a real bond
         
         
         COM_before_centering = pos.mean(0)[None, ...]
-        data['com_before_centering'] = torch.as_tensor(COM_before_centering, dtype = torch.float)
+        data['com_before_centering'] = torch.from_numpy(COM_before_centering.copy()).float()
         pos_recentered = pos - pos.mean(0)
         if self.recenter_x1:
             pos = pos_recentered
         COM = pos.mean(0)[None, ...]
-        data['com'] = torch.as_tensor(COM, dtype = torch.float)
+        data['com'] = torch.from_numpy(COM.copy()).float()
 
         virtual_node_mask = np.zeros(pos.shape[0] + int(self.add_virtual_node_x1))
         if self.add_virtual_node_x1: # should change according to desired behavior
@@ -212,14 +212,14 @@ class HeteroDataset(torch_geometric.data.Dataset):
         virtual_node_mask = virtual_node_mask == 1
         num_nodes = num_atoms + int(self.add_virtual_node_x1)
         
-        data['bond_edge_index'] = torch.as_tensor(bond_edge_index, dtype = torch.long)
-        data['pos'] = torch.as_tensor(pos, dtype = torch.float)
-        data['pos_recentered'] = torch.as_tensor(pos_recentered, dtype = torch.float)
-        data['virtual_node_mask'] = torch.as_tensor(virtual_node_mask)
+        data['bond_edge_index'] = torch.from_numpy(bond_edge_index.copy()).long()
+        data['pos'] = torch.from_numpy(pos.copy()).float()
+        data['pos_recentered'] = torch.from_numpy(pos_recentered.copy()).float()
+        data['virtual_node_mask'] = torch.from_numpy(virtual_node_mask.copy()).bool()
         
         
         # (scaled) one-hot embedding of atom types and formal charges for non-noised structure
-        x = np.zeros((num_nodes, len(self.atom_types_x1))) #torch.as_tensor(atomic_numbers, dtype = torch.long)
+        x = np.zeros((num_nodes, len(self.atom_types_x1))) #torch.tensor(atomic_numbers, dtype = torch.long)
         x[np.arange(num_nodes), atom_types] = 1
         x = x * self.scale_atom_features_x1
         if self.formal_charge_diffusion:
@@ -230,7 +230,7 @@ class HeteroDataset(torch_geometric.data.Dataset):
                 # virtual node has all zeros for the formal charge one-hot features
                 x_formal_charges = np.concatenate((np.zeros(len(self.charge_types_x1), dtype = x_formal_charges.dtype)[None, ...], x_formal_charges), axis = 0)
             x = np.concatenate((x, x_formal_charges), axis = 1)
-        data['x'] = torch.as_tensor(x, dtype = torch.float)
+        data['x'] = torch.from_numpy(x.copy()).float()
         
         
         # (scaled) one-hot embedding of bond types for non-noised structure
@@ -238,7 +238,7 @@ class HeteroDataset(torch_geometric.data.Dataset):
         bond_edge_x = np.zeros((bond_edge_index.shape[1], max_bond_types_x1))
         bond_edge_x[np.arange(len(bond_types)), bond_types] = 1
         bond_edge_x = bond_edge_x * self.scale_bond_features_x1
-        data['bond_edge_x'] = torch.as_tensor(bond_edge_x, dtype = torch.float)
+        data['bond_edge_x'] = torch.from_numpy(bond_edge_x.copy()).float()
         
         
         # forward noising non-virtual-nodes
@@ -247,27 +247,27 @@ class HeteroDataset(torch_geometric.data.Dataset):
         pos_noise[virtual_node_mask] = 0.0
         if self.remove_noise_COM_x1: # removing COM from added noise
             pos_noise[~virtual_node_mask] = pos_noise[~virtual_node_mask] - np.mean(pos_noise[~virtual_node_mask], axis = 0) 
-        data['pos_noise'] = torch.as_tensor(pos_noise, dtype = torch.float)
+        data['pos_noise'] = torch.from_numpy(pos_noise.copy()).float()
         
         x_noise = np.random.randn(*x.shape)
         x_noise[virtual_node_mask] = 0.0
-        data['x_noise'] = torch.as_tensor(x_noise, dtype = torch.float)
+        data['x_noise'] = torch.from_numpy(x_noise.copy()).float()
         
         # this doesn't include any edges to the virtual node
         bond_edge_x_noise = np.random.randn(*bond_edge_x.shape)
-        data['bond_edge_x_noise'] = torch.as_tensor(bond_edge_x_noise, dtype = torch.float)
+        data['bond_edge_x_noise'] = torch.from_numpy(bond_edge_x_noise.copy()).float()
         
         
         pos_forward_noised = alpha_dash_t * pos  +  sigma_dash_t * pos_noise 
         pos_forward_noised[virtual_node_mask] = pos[virtual_node_mask]
-        data['pos_forward_noised'] = torch.as_tensor(pos_forward_noised, dtype = torch.float)
+        data['pos_forward_noised'] = torch.from_numpy(pos_forward_noised.copy()).float()
         
         x_forward_noised = alpha_dash_t * x  +  sigma_dash_t * x_noise 
         x_forward_noised[virtual_node_mask] = x[virtual_node_mask]
-        data['x_forward_noised'] = torch.as_tensor(x_forward_noised, dtype = torch.float)
+        data['x_forward_noised'] = torch.from_numpy(x_forward_noised.copy()).float()
         
         bond_edge_x_forward_noised = alpha_dash_t * bond_edge_x  +  sigma_dash_t * bond_edge_x_noise 
-        data['bond_edge_x_forward_noised'] = torch.as_tensor(bond_edge_x_forward_noised, dtype = torch.float)
+        data['bond_edge_x_forward_noised'] = torch.from_numpy(bond_edge_x_forward_noised.copy()).float()
 
         return data, pos, virtual_node_mask
     
@@ -276,7 +276,7 @@ class HeteroDataset(torch_geometric.data.Dataset):
     def get_x2_data(self, radii, atom_centers, num_points, recenter, add_virtual_node, remove_noise_COM, t, alpha_dash_t, sigma_dash_t, virtual_node_pos = None):
         
         data = {}
-        data['timestep'] = torch.as_tensor(np.array([t]))
+        data['timestep'] = torch.tensor([t], dtype=torch.long)
         
         pos = get_molecular_surface(
             atom_centers,
@@ -287,12 +287,12 @@ class HeteroDataset(torch_geometric.data.Dataset):
         )
         
         COM_before_centering = pos.mean(0)[None, :]
-        data['com_before_centering'] = torch.as_tensor(COM_before_centering, dtype = torch.float)
+        data['com_before_centering'] = torch.from_numpy(COM_before_centering.copy()).float()
         pos_recentered = pos - pos.mean(0)
         if recenter:
             pos = pos_recentered
         COM = pos.mean(0)[None, :]
-        data['com'] = torch.as_tensor(COM, dtype = torch.float)
+        data['com'] = torch.from_numpy(COM.copy()).float()
         
         virtual_node_mask = np.zeros(pos.shape[0] + int(add_virtual_node))
         if add_virtual_node: # should change according to desired behavior
@@ -303,16 +303,16 @@ class HeteroDataset(torch_geometric.data.Dataset):
             virtual_node_mask[0] = 1
         virtual_node_mask = virtual_node_mask == 1
         
-        data['pos'] = torch.as_tensor(pos, dtype = torch.float)
-        data['pos_recentered'] = torch.as_tensor(pos_recentered, dtype = torch.float)
-        data['virtual_node_mask'] = torch.as_tensor(virtual_node_mask)
+        data['pos'] = torch.from_numpy(pos.copy()).float()
+        data['pos_recentered'] = torch.from_numpy(pos_recentered.copy()).float()
+        data['virtual_node_mask'] = torch.from_numpy(virtual_node_mask.copy()).bool()
         
         
         # one-hot embedding indicating real vs virtual nodes
         x = np.zeros((pos.shape[0], 2))
         x[~virtual_node_mask,0] = 1
         x[virtual_node_mask,1] = 1
-        data['x'] = torch.as_tensor(x, dtype = torch.float)
+        data['x'] = torch.from_numpy(x.copy()).float()
         data['x_forward_noised'] = data['x'] # there are no features to be noised in x2
         
         # forward noising non-virtual-nodes
@@ -320,11 +320,11 @@ class HeteroDataset(torch_geometric.data.Dataset):
         pos_noise[virtual_node_mask] = 0.0
         if remove_noise_COM:
             pos_noise[~virtual_node_mask] = pos_noise[~virtual_node_mask] - np.mean(pos_noise[~virtual_node_mask], axis = 0) # removing COM from added noise
-        data['pos_noise'] = torch.as_tensor(pos_noise, dtype = torch.float)
+        data['pos_noise'] = torch.from_numpy(pos_noise.copy()).float()
         
         pos_forward_noised = alpha_dash_t * pos  +  sigma_dash_t * pos_noise 
         pos_forward_noised[virtual_node_mask] = pos[virtual_node_mask]
-        data['pos_forward_noised'] = torch.as_tensor(pos_forward_noised, dtype = torch.float)
+        data['pos_forward_noised'] = torch.from_numpy(pos_forward_noised.copy()).float()
         
         return data, pos, virtual_node_mask
     
@@ -336,15 +336,15 @@ class HeteroDataset(torch_geometric.data.Dataset):
         x[virtual_node_mask] = 0.0
         x = x * self.scale_node_features_x3
         
-        data['x'] = torch.as_tensor(x, dtype = torch.float)
+        data['x'] = torch.from_numpy(x.copy()).float()
         
         x_noise = np.random.randn(*x.shape)
         x_noise[virtual_node_mask] = 0.0
-        data['x_noise'] = torch.as_tensor(x_noise, dtype = torch.float)
+        data['x_noise'] = torch.from_numpy(x_noise.copy()).float()
         
         x_forward_noised = alpha_dash_t * x  +  sigma_dash_t * x_noise 
         x_forward_noised[virtual_node_mask] = x[virtual_node_mask]
-        data['x_forward_noised'] = torch.as_tensor(x_forward_noised, dtype = torch.float)
+        data['x_forward_noised'] = torch.from_numpy(x_forward_noised.copy()).float()
         
         return data
     
@@ -355,7 +355,7 @@ class HeteroDataset(torch_geometric.data.Dataset):
         assert add_virtual_node
         
         data = {}
-        data['timestep'] = torch.as_tensor(np.array([t]))
+        data['timestep'] = torch.tensor([t], dtype=torch.long)
         
         pharm_types, pos, direction = get_pharmacophores(
             mol, 
@@ -374,12 +374,12 @@ class HeteroDataset(torch_geometric.data.Dataset):
             x = np.zeros((pharm_types.size, self.max_node_types_x4))
             x[np.arange(pharm_types.size), pharm_types] = 1
             x = x * self.scale_node_features_x4
-            data['x'] = torch.as_tensor(x, dtype = torch.float)
+            data['x'] = torch.from_numpy(x.copy()).float()
             
             if (virtual_node_pos is None) or (recenter == True):
                 virtual_node_pos = np.zeros(3)[None, ...]
-            data['com_before_centering'] = torch.as_tensor(virtual_node_pos, dtype = torch.float)
-            data['com'] = torch.as_tensor(virtual_node_pos, dtype = torch.float)
+            data['com_before_centering'] = torch.from_numpy(virtual_node_pos.copy()).float()
+            data['com'] = torch.from_numpy(virtual_node_pos.copy()).float()
             
             virtual_node_mask = np.array([1])
             virtual_node_mask = virtual_node_mask == 1
@@ -389,37 +389,37 @@ class HeteroDataset(torch_geometric.data.Dataset):
             
             direction = direction * self.scale_vector_features_x4
             
-            data['pos'] = torch.as_tensor(pos, dtype = torch.float)
-            data['pos_recentered'] = torch.as_tensor(pos * 0.0, dtype = torch.float)
-            data['direction'] = torch.as_tensor(direction, dtype = torch.float)
-            data['virtual_node_mask'] = torch.as_tensor(virtual_node_mask)
+            data['pos'] = torch.from_numpy(pos.copy()).float()
+            data['pos_recentered'] = torch.from_numpy((pos * 0.0).copy()).float()
+            data['direction'] = torch.from_numpy(direction.copy()).float()
+            data['virtual_node_mask'] = torch.from_numpy(virtual_node_mask.copy()).bool()
             
             # virtual node remains unnoised
             x_noise = np.zeros(x.shape)
-            data['x_noise'] = torch.as_tensor(x_noise, dtype = torch.float)
+            data['x_noise'] = torch.from_numpy(x_noise.copy()).float()
             x_forward_noised = x
-            data['x_forward_noised'] = torch.as_tensor(x_forward_noised, dtype = torch.float)
+            data['x_forward_noised'] = torch.from_numpy(x_forward_noised.copy()).float()
             
             pos_noise = np.zeros(pos.shape)
-            data['pos_noise'] = torch.as_tensor(pos_noise, dtype = torch.float)
+            data['pos_noise'] = torch.from_numpy(pos_noise.copy()).float()
             pos_forward_noised = pos
-            data['pos_forward_noised'] = torch.as_tensor(pos_forward_noised, dtype = torch.float)
+            data['pos_forward_noised'] = torch.from_numpy(pos_forward_noised.copy()).float()
             
             direction_noise = np.zeros(direction.shape)
-            data['direction_noise'] = torch.as_tensor(direction_noise, dtype = torch.float)
+            data['direction_noise'] = torch.from_numpy(direction_noise.copy()).float()
             direction_forward_noised = direction
-            data['direction_forward_noised'] = torch.as_tensor(direction_forward_noised, dtype = torch.float)
+            data['direction_forward_noised'] = torch.from_numpy(direction_forward_noised.copy()).float()
             
             return data
         
         
         COM_before_centering = pos.mean(0)[None, :]
-        data['com_before_centering'] = torch.as_tensor(COM_before_centering, dtype = torch.float)
+        data['com_before_centering'] = torch.from_numpy(COM_before_centering.copy()).float()
         pos_recentered = pos - pos.mean(0)
         if recenter:
             pos = pos_recentered
         COM = pos.mean(0)[None, :]
-        data['com'] = torch.as_tensor(COM, dtype = torch.float)
+        data['com'] = torch.from_numpy(COM.copy()).float()
         
         
         virtual_node_mask = np.zeros(pos.shape[0] + int(add_virtual_node))
@@ -436,48 +436,48 @@ class HeteroDataset(torch_geometric.data.Dataset):
         virtual_node_mask = virtual_node_mask == 1
         
         
-        x = np.zeros((pharm_types.size, self.max_node_types_x4)) #torch.as_tensor(atomic_numbers, dtype = torch.long)
+        x = np.zeros((pharm_types.size, self.max_node_types_x4)) #torch.tensor(atomic_numbers, dtype = torch.long)
         x[np.arange(pharm_types.size), pharm_types] = 1
         x = x * self.scale_node_features_x4
-        data['x'] = torch.as_tensor(x, dtype = torch.float)
+        data['x'] = torch.from_numpy(x.copy()).float()
         
-        data['pos'] = torch.as_tensor(pos , dtype = torch.float)
-        data['pos_recentered'] = torch.as_tensor(pos_recentered , dtype = torch.float)
+        data['pos'] = torch.from_numpy(pos.copy()).float()
+        data['pos_recentered'] = torch.from_numpy(pos_recentered.copy()).float()
         
         direction = direction * self.scale_vector_features_x4
-        data['direction'] = torch.as_tensor(direction, dtype = torch.float)
-        data['virtual_node_mask'] = torch.as_tensor(virtual_node_mask)
+        data['direction'] = torch.from_numpy(direction.copy()).float()
+        data['virtual_node_mask'] = torch.from_numpy(virtual_node_mask.copy()).bool()
         
         
         # forward noising non-virtual-nodes
             
         x_noise = np.random.randn(*x.shape)
         x_noise[virtual_node_mask] = 0.0 # x_noise[virtual_node_mask] * 0.0
-        data['x_noise'] = torch.as_tensor(x_noise, dtype = torch.float)
+        data['x_noise'] = torch.from_numpy(x_noise.copy()).float()
         
         x_forward_noised = alpha_dash_t * x  +  sigma_dash_t * x_noise 
         x_forward_noised[virtual_node_mask] = x[virtual_node_mask]
-        data['x_forward_noised'] = torch.as_tensor(x_forward_noised, dtype = torch.float)
+        data['x_forward_noised'] = torch.from_numpy(x_forward_noised.copy()).float()
         
         
         pos_noise = np.random.randn(*pos.shape)
         pos_noise[virtual_node_mask] = 0.0
         if remove_noise_COM: # removing COM from added noise
             pos_noise[~virtual_node_mask] = pos_noise[~virtual_node_mask] - np.mean(pos_noise[~virtual_node_mask], axis = 0) 
-        data['pos_noise'] = torch.as_tensor(pos_noise, dtype = torch.float)
+        data['pos_noise'] = torch.from_numpy(pos_noise.copy()).float()
         
         pos_forward_noised = alpha_dash_t * pos  +  sigma_dash_t * pos_noise 
         pos_forward_noised[virtual_node_mask] = pos[virtual_node_mask]
-        data['pos_forward_noised'] = torch.as_tensor(pos_forward_noised, dtype = torch.float)
+        data['pos_forward_noised'] = torch.from_numpy(pos_forward_noised.copy()).float()
         
         
         direction_noise = np.random.randn(*direction.shape)
         direction_noise[virtual_node_mask] = 0.0
-        data['direction_noise'] = torch.as_tensor(direction_noise, dtype = torch.float)
+        data['direction_noise'] = torch.from_numpy(direction_noise.copy()).float()
         
         direction_forward_noised = alpha_dash_t * direction  +  sigma_dash_t * direction_noise 
         direction_forward_noised[virtual_node_mask] = direction[virtual_node_mask]
-        data['direction_forward_noised'] = torch.as_tensor(direction_forward_noised, dtype = torch.float)
+        data['direction_forward_noised'] = torch.from_numpy(direction_forward_noised.copy()).float()
         
         return data
     
@@ -503,7 +503,7 @@ class HeteroDataset(torch_geometric.data.Dataset):
             charges = get_atomic_partial_charges(mol) #MMFF94 charges
         
         data_dict = {
-            'molecule_id': torch.as_tensor(np.array([k]), dtype = torch.long),
+            'molecule_id': torch.tensor([k], dtype=torch.long),
             'x1': {},
             'x2': {},
             'x3': {},
@@ -538,10 +538,10 @@ class HeteroDataset(torch_geometric.data.Dataset):
             
             x1_data, x1_pos, x1_virtual_node_mask = self.get_x1_data(mol, t, alpha_dash_t, sigma_dash_t)
             
-            x1_data['alpha_t'] = torch.as_tensor(np.array([alpha_t]), dtype = torch.float)
-            x1_data['sigma_t'] = torch.as_tensor(np.array([sigma_t]), dtype = torch.float)
-            x1_data['alpha_dash_t'] = torch.as_tensor(np.array([alpha_dash_t]), dtype = torch.float)
-            x1_data['sigma_dash_t'] = torch.as_tensor(np.array([sigma_dash_t]), dtype = torch.float)
+            x1_data['alpha_t'] = torch.tensor([alpha_t], dtype=torch.float)
+            x1_data['sigma_t'] = torch.tensor([sigma_t], dtype=torch.float)
+            x1_data['alpha_dash_t'] = torch.tensor([alpha_dash_t], dtype=torch.float)
+            x1_data['sigma_dash_t'] = torch.tensor([sigma_dash_t], dtype=torch.float)
                         
             data_dict['x1'] = x1_data
         
@@ -597,10 +597,10 @@ class HeteroDataset(torch_geometric.data.Dataset):
                 virtual_node_pos = virtual_node_pos,
             )
             
-            x2_data['alpha_t'] = torch.as_tensor(np.array([alpha_t]), dtype = torch.float)
-            x2_data['sigma_t'] = torch.as_tensor(np.array([sigma_t]), dtype = torch.float)
-            x2_data['alpha_dash_t'] = torch.as_tensor(np.array([alpha_dash_t]), dtype = torch.float)
-            x2_data['sigma_dash_t'] = torch.as_tensor(np.array([sigma_dash_t]), dtype = torch.float)
+            x2_data['alpha_t'] = torch.tensor([alpha_t], dtype=torch.float)
+            x2_data['sigma_t'] = torch.tensor([sigma_t], dtype=torch.float)
+            x2_data['alpha_dash_t'] = torch.tensor([alpha_dash_t], dtype=torch.float)
+            x2_data['sigma_dash_t'] = torch.tensor([sigma_dash_t], dtype=torch.float)
                         
             data_dict['x2'] = x2_data
         
@@ -648,7 +648,7 @@ class HeteroDataset(torch_geometric.data.Dataset):
                 virtual_node_pos = None # this will get re-set to be the COM of x3 (NOT mol_coordinates) in get_x3_data
             
             # we use the same surface cloud formulation as x2 for the points in x3
-            x3_data, x3_pos, x3_virtual_node_mask, x3_duplicate_points = self.get_x2_data(
+            x3_data, x3_pos, x3_virtual_node_mask = self.get_x2_data(
                 radii, 
                 atom_centers, 
                 self.num_points_x3, 
@@ -661,7 +661,7 @@ class HeteroDataset(torch_geometric.data.Dataset):
             
             # the x3 point cloud, if re-centered, is displaced from the atom centers used to generate it. 
                 # Before computing electrostatics for x3, we have to displace the charge centers to account for this.
-            x3_COM_displacement = x3_data['com'].numpy() - x3_data['com_before_centering'].numpy()
+            x3_COM_displacement = (x3_data['com'] - x3_data['com_before_centering']).detach().cpu().numpy()
             charge_centers = atom_centers + x3_COM_displacement
             
             # same noise is applied to both coordinates and features
@@ -674,10 +674,10 @@ class HeteroDataset(torch_geometric.data.Dataset):
                 t, alpha_dash_t, sigma_dash_t,
             )
             
-            x3_data['alpha_t'] = torch.as_tensor(np.array([alpha_t]), dtype = torch.float)
-            x3_data['sigma_t'] = torch.as_tensor(np.array([sigma_t]), dtype = torch.float)
-            x3_data['alpha_dash_t'] = torch.as_tensor(np.array([alpha_dash_t]), dtype = torch.float)
-            x3_data['sigma_dash_t'] = torch.as_tensor(np.array([sigma_dash_t]), dtype = torch.float)
+            x3_data['alpha_t'] = torch.tensor([alpha_t], dtype=torch.float)
+            x3_data['sigma_t'] = torch.tensor([sigma_t], dtype=torch.float)
+            x3_data['alpha_dash_t'] = torch.tensor([alpha_dash_t], dtype=torch.float)
+            x3_data['sigma_dash_t'] = torch.tensor([sigma_dash_t], dtype=torch.float)
                         
             data_dict['x3'] = x3_data
 
@@ -733,25 +733,46 @@ class HeteroDataset(torch_geometric.data.Dataset):
                 virtual_node_pos,
             )
             
-            x4_data['alpha_t'] = torch.as_tensor(np.array([alpha_t]), dtype = torch.float)
-            x4_data['sigma_t'] = torch.as_tensor(np.array([sigma_t]), dtype = torch.float)
-            x4_data['alpha_dash_t'] = torch.as_tensor(np.array([alpha_dash_t]), dtype = torch.float)
-            x4_data['sigma_dash_t'] = torch.as_tensor(np.array([sigma_dash_t]), dtype = torch.float)
+            x4_data['alpha_t'] = torch.tensor([alpha_t], dtype=torch.float)
+            x4_data['sigma_t'] = torch.tensor([sigma_t], dtype=torch.float)
+            x4_data['alpha_dash_t'] = torch.tensor([alpha_dash_t], dtype=torch.float)
+            x4_data['sigma_dash_t'] = torch.tensor([sigma_dash_t], dtype=torch.float)
                         
             data_dict['x4'] = x4_data
         
         
-        data = torch_geometric.data.HeteroData(
-            molecule_id = data_dict['molecule_id'],
-            x1 = data_dict['x1'],
-            x2 = data_dict['x2'],
-            x3 = data_dict['x3'],
-            x4 = data_dict['x4'],
+        data = torch_geometric.data.HeteroData()
+        if 'molecule_id' in data_dict:
+            data.molecule_id = data_dict['molecule_id']
+
+        if 'x1' in data_dict and data_dict['x1']:
+            x1_data = data_dict['x1']
             
-            # this exploits some really weird PyG behavior: see https://github.com/pyg-team/pytorch_geometric/issues/7138
-                # any '*_edge_index' that we want automatically incremented must be specified below (will NOT be incremented in data_dict['x1'], ...)
-            x1__x1 = {'bond_edge_index': data_dict['x1']['bond_edge_index'], 'num_nodes': data_dict['x1']['pos'].shape[0]}, 
-        )
+            x1_node_dict = {k: v for k, v in x1_data.items() if 'bond' not in k}
+
+            x1_edge_dict = {
+                'edge_index': x1_data['bond_edge_index'],
+                'mask': x1_data['bond_edge_mask'],
+                'x': x1_data['bond_edge_x'],
+                'x_noise': x1_data['bond_edge_x_noise'],
+                'x_forward_noised': x1_data['bond_edge_x_forward_noised'],
+            }
+            
+            for key, value in x1_node_dict.items():
+                data['x1'][key] = value
+            for key, value in x1_edge_dict.items():
+                data['x1', 'bond', 'x1'][key] = value
+
+        if 'x2' in data_dict and data_dict['x2']:
+            for key, value in data_dict['x2'].items():
+                data['x2'][key] = value
+        if 'x3' in data_dict and data_dict['x3']:
+            for key, value in data_dict['x3'].items():
+                data['x3'][key] = value
+        if 'x4' in data_dict and data_dict['x4']:
+            for key, value in data_dict['x4'].items():
+                data['x4'][key] = value
+
         return data
     
     

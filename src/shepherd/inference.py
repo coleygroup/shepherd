@@ -1,13 +1,13 @@
 import open3d 
-from shepherd_score_utils.generate_point_cloud import (
+from shepherd.shepherd_score_utils.generate_point_cloud import (
     get_atom_coords, 
     get_atomic_vdw_radii, 
     get_molecular_surface,
     get_electrostatics,
     get_electrostatics_given_point_charges,
 )
-from shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
-from shepherd_score_utils.conformer_generation import update_mol_coordinates
+from shepherd.shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
+from shepherd.shepherd_score_utils.conformer_generation import update_mol_coordinates
 
 import rdkit
 from rdkit.Chem import rdDetermineBonds
@@ -26,16 +26,12 @@ import os
 import multiprocessing
 from tqdm import tqdm
 
-import sys
-sys.path.insert(-1, "model/")
-sys.path.insert(-1, "model/equiformer_v2")
-
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from lightning_module import LightningModule
-from datasets import HeteroDataset
+from shepherd.lightning_module import LightningModule
+from shepherd.datasets import HeteroDataset
 
 import importlib
 

@@ -7,11 +7,11 @@ import torch.nn as nn
 from pyexpat.model import XML_CQUANT_OPT
 import copy
 
-from equiformer_v2.ocpmodels.common.registry import registry
-from equiformer_v2.ocpmodels.common.utils import conditional_grad
-from equiformer_v2.ocpmodels.models.base import BaseModel
-from equiformer_v2.ocpmodels.models.scn.sampling import CalcSpherePoints
-from equiformer_v2.ocpmodels.models.scn.smearing import (
+from shepherd.model.equiformer_v2.ocpmodels.common.registry import registry
+from shepherd.model.equiformer_v2.ocpmodels.common.utils import conditional_grad
+from shepherd.model.equiformer_v2.ocpmodels.models.base import BaseModel
+from shepherd.model.equiformer_v2.ocpmodels.models.scn.sampling import CalcSpherePoints
+from shepherd.model.equiformer_v2.ocpmodels.models.scn.smearing import (
     GaussianSmearing,
     LinearSigmoidSmearing,
     SigmoidSmearing,
@@ -23,27 +23,27 @@ try:
 except ImportError:
     pass
 
-from equiformer_v2.nets.equiformer_v2.gaussian_rbf import GaussianRadialBasisLayer
+from shepherd.model.equiformer_v2.nets.equiformer_v2.gaussian_rbf import GaussianRadialBasisLayer
 from torch.nn import Linear
-from equiformer_v2.nets.equiformer_v2.edge_rot_mat import init_edge_rot_mat
-from equiformer_v2.nets.equiformer_v2.so3 import (
+from shepherd.model.equiformer_v2.nets.equiformer_v2.edge_rot_mat import init_edge_rot_mat
+from shepherd.model.equiformer_v2.nets.equiformer_v2.so3 import (
     CoefficientMappingModule,
     SO3_Embedding,
     SO3_Grid,
     SO3_Rotation,
     SO3_LinearV2
 )
-from equiformer_v2.nets.equiformer_v2.module_list import ModuleListInfo
-from equiformer_v2.nets.equiformer_v2.so2_ops import SO2_Convolution
-from equiformer_v2.nets.equiformer_v2.radial_function import RadialFunction
-from equiformer_v2.nets.equiformer_v2.layer_norm import (
+from shepherd.model.equiformer_v2.nets.equiformer_v2.module_list import ModuleListInfo
+from shepherd.model.equiformer_v2.nets.equiformer_v2.so2_ops import SO2_Convolution
+from shepherd.model.equiformer_v2.nets.equiformer_v2.radial_function import RadialFunction
+from shepherd.model.equiformer_v2.nets.equiformer_v2.layer_norm import (
     EquivariantLayerNormArray, 
     EquivariantLayerNormArraySphericalHarmonics, 
     EquivariantRMSNormArraySphericalHarmonics,
     EquivariantRMSNormArraySphericalHarmonicsV2,
     get_normalization_layer
 )
-from equiformer_v2.nets.equiformer_v2.transformer_block import (
+from shepherd.model.equiformer_v2.nets.equiformer_v2.transformer_block import (
     SO2EquivariantGraphAttention,
     FeedForwardNetwork,
     TransBlockV2, 
