@@ -1,13 +1,13 @@
 import open3d 
-from shepherd_score_utils.generate_point_cloud import (
+from shepherd.shepherd_score_utils.generate_point_cloud import (
     get_atom_coords, 
     get_atomic_vdw_radii, 
     get_molecular_surface,
     get_electrostatics,
     get_electrostatics_given_point_charges,
 )
-from shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
-from shepherd_score_utils.conformer_generation import update_mol_coordinates
+from shepherd.shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
+from shepherd.shepherd_score_utils.conformer_generation import update_mol_coordinates
 
 print('importing rdkit')
 import rdkit
@@ -28,25 +28,21 @@ import os
 import multiprocessing
 from tqdm import tqdm
 
-import sys
-sys.path.insert(-1, "model/")
-sys.path.insert(-1, "model/equiformer_v2")
-
 print('importing lightning')
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from lightning_module import LightningModule
-from datasets import HeteroDataset
+from shepherd.lightning_module import LightningModule
+from shepherd.datasets import HeteroDataset
 
 import importlib
 
-from inference import *
+from shepherd.inference import *
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-chkpt = 'shepherd_chkpts/x1x4_diffusion_gdb17_20240824_submission.ckpt'
+chkpt = '../../data/shepherd_chkpts/x1x4_diffusion_gdb17_20240824_submission.ckpt'
 
 model_pl = LightningModule.load_from_checkpoint(chkpt)
 params = model_pl.params
@@ -68,7 +64,7 @@ num_batches = args.num_batches
 file_index = args.file_index
 #N_x4 = args.N_x4 # we sample this from the empirical distribution P(n_pharmacophores | n_atoms)
 
-distributions = np.load('conformers/distributions/atom_pharm_count.npz')
+distributions = np.load('../../data/conformers/distributions/atom_pharm_count.npz')
 
 generated_samples = []
 for n in range(num_batches):

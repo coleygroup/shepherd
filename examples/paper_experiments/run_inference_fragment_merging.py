@@ -1,13 +1,13 @@
 import open3d 
-from shepherd_score_utils.generate_point_cloud import (
+from shepherd.shepherd_score_utils.generate_point_cloud import (
     get_atom_coords, 
     get_atomic_vdw_radii, 
     get_molecular_surface,
     get_electrostatics,
     get_electrostatics_given_point_charges,
 )
-from shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
-from shepherd_score_utils.conformer_generation import update_mol_coordinates
+from shepherd.shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
+from shepherd.shepherd_score_utils.conformer_generation import update_mol_coordinates
 
 print('importing rdkit')
 import rdkit
@@ -28,26 +28,22 @@ import os
 import multiprocessing
 from tqdm import tqdm
 
-import sys
-sys.path.insert(-1, "model/")
-sys.path.insert(-1, "model/equiformer_v2")
-
 print('importing lightning')
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from lightning_module import LightningModule
-from datasets import HeteroDataset
+from shepherd.lightning_module import LightningModule
+from shepherd.datasets import HeteroDataset
 
 import importlib
 
-from inference import *
+from shepherd.inference import *
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 # loading model
-chkpt = 'shepherd_chkpts/x1x3x4_diffusion_mosesaq_20240824_submission.ckpt'
+chkpt = '../../data/shepherd_chkpts/x1x3x4_diffusion_mosesaq_20240824_submission.ckpt'
 model_pl = LightningModule.load_from_checkpoint(chkpt)
 params = model_pl.params
 model_pl.to(device)
@@ -55,7 +51,7 @@ model_pl.model.device = device
 
 
 # getting interaction profiles of target
-with open('conformers/fragment_merging/fragment_merge_condition.pickle', 'rb') as f:
+with open('../../data/conformers/fragment_merging/fragment_merge_condition.pickle', 'rb') as f:
     fragment_merge_features = pickle.load(f)
 COM = fragment_merge_features['x3']['positions'].mean(0)
 fragment_merge_features['x2']['positions'] = fragment_merge_features['x2']['positions'] - COM
@@ -64,7 +60,7 @@ fragment_merge_features['x4']['positions'] = fragment_merge_features['x4']['posi
 
 fragment_mols = []
 for i in range(0,13):
-    fmol = f'conformers/fragment_merging/fragments/mol_{i}.mol'
+    fmol = f'../../data/conformers/fragment_merging/fragments/mol_{i}.mol'
     fmol = rdkit.Chem.MolFromMolFile(fmol, removeHs = False)
     coordinates = fmol.GetConformer().GetPositions()
     coordinates = coordinates - COM
