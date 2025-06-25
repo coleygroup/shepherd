@@ -1,3 +1,8 @@
+"""
+Contains the inference sampler for the original ShEPhERD model.
+This is kept for legibility since it is much easier to read and implement
+(i.e., consists of many copy pastes for each interaction profile).
+"""
 import open3d 
 from shepherd.shepherd_score_utils.generate_point_cloud import (
     get_atom_coords, 
@@ -151,7 +156,7 @@ def inference_sample(
     pharm_types = np.zeros(5, dtype = int),
     pharm_pos = np.zeros((5,3)),
     pharm_direction = np.zeros((5,3)),
-    
+    verbose=False,
 ):
     """
     Runs inference of ShEPhERD to sample `batch_size` number of molecules.
@@ -213,6 +218,7 @@ def inference_sample(
         coordinates.
     pharm_direction : np.ndarray (<=N_x4,3) (default = np.zeros((5,3))) Pharmacophore directions as
         unit vectors.
+    verbose : bool (default = False) Whether to print verbose output.
 
     Returns
     -------
@@ -635,8 +641,8 @@ def inference_sample(
     
     
     ######## Main Denoising Loop #########
-    
-    pbar = tqdm(total= T + sum(harmonize_jumps) * int(harmonize), position=0, leave=True)
+    if verbose:
+        pbar = tqdm(total= T + sum(harmonize_jumps) * int(harmonize), position=0, leave=True)
     
     x1_t_x_list = []
     x1_t_bond_edge_x_list = []
@@ -1125,14 +1131,15 @@ def inference_sample(
         x2_t = x2_t - 1
         x3_t = x3_t - 1
         x4_t = x4_t - 1
-    
-        pbar.update(1)
+
+        if verbose:
+            pbar.update(1)
         
         # this is necessary for clearing CUDA memory
         del output_dict
         del input_dict    
-        
-    pbar.close()
+    if verbose:
+        pbar.close()
     
     
     
