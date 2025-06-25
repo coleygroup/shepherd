@@ -455,7 +455,8 @@ def _inference_step(
     perform_harmonization_jump = False
     harmonize_jump_len = 0
     if (harmonize) and (len(harmonize_ts) > 0) and (t == harmonize_ts[0]):
-        print(f'Harmonizing... at time {t}')
+        if pbar is not None:
+            print(f'Harmonizing... at time {t}')
         harmonize_ts.pop(0)
         if len(harmonize_ts) == 0:
             harmonize = False # use up harmonization steps
@@ -492,7 +493,7 @@ def _inference_step(
             current_time_idx = jump_to_idx
             if pbar is not None:
                 pbar.update(harmonize_jump_len) # update progress bar for the jumped steps
-            print(f"Harmonization jumped from t={t} to t={jumped_to_t}, resuming loop.")
+                print(f"Harmonization jumped from t={t} to t={jumped_to_t}, resuming loop.")
             t = jumped_to_t # update t for the next iteration start
             # need to re-fetch noise params for the new 't' before proceeding if the loop continued immediately,
             # but we will recalculate at the start of the next iteration anyway
