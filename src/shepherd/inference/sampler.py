@@ -11,7 +11,7 @@ from functools import partial
 from typing import Optional
 
 import open3d
-import rdkit
+from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds
 import numpy as np
 import matplotlib.pyplot as plt
@@ -38,20 +38,8 @@ from shepherd.inference.steps import (
     _perform_reverse_denoising_step,
     _prepare_model_input,
     _inference_step,
-    _pack_inpainting_dict,
     _extract_generated_samples
 )
-
-from shepherd.shepherd_score_utils.generate_point_cloud import (
-    get_atom_coords,
-    get_atomic_vdw_radii,
-    get_molecular_surface,
-    get_electrostatics,
-    get_electrostatics_given_point_charges,
-)
-from shepherd.shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
-from shepherd.shepherd_score_utils.conformer_generation import update_mol_coordinates
-
 
 def generate(
     model_pl: LightningModule,
@@ -74,12 +62,17 @@ def generate(
 
     # all the below options are only relevant if unconditional is False
 
+    inpaint_x1_pos: bool = False,
+    inpaint_x1_x: bool = False,
+
     inpaint_x2_pos: bool = False,
     inpaint_x3_pos: bool = False,
     inpaint_x3_x: bool = False,
     inpaint_x4_pos: bool = False,
     inpaint_x4_direction: bool = False,
     inpaint_x4_type: bool = False,
+
+    stop_inpainting_at_time_x1: float = 0.0,
 
     stop_inpainting_at_time_x2: float = 0.0,
     add_noise_to_inpainted_x2_pos: float = 0.0,
@@ -94,6 +87,8 @@ def generate(
     add_noise_to_inpainted_x4_type: float = 0.0,
 
     # these are the inpainting targets
+    atom_types: Optional[list[int]] = None,
+    atom_pos: Optional[np.ndarray] = None,
     center_of_mass: np.ndarray = np.zeros(3),
     surface: np.ndarray = np.zeros((75,3)),
     electrostatics: np.ndarray = np.zeros(75),
@@ -101,7 +96,7 @@ def generate(
     pharm_pos: np.ndarray = np.zeros((5,3)),
     pharm_direction: np.ndarray = np.zeros((5,3)),
     verbose: bool = True
-):
+    ) -> list[dict]:
     """
     Runs inference of ShEPhERD to sample `batch_size` number of molecules.
 
@@ -129,6 +124,9 @@ def generate(
 
     *all the below options are only relevant if unconditional is False*
 
+    inpaint_x1_pos : bool (default=False)
+    inpaint_x1_x : bool (default=False)
+
     inpaint_x2_pos : bool (default=False) Toggle inpainting.
         Note that x2 is implicitly modeled via x3.
 
@@ -139,6 +137,9 @@ def generate(
     inpaint_x4_direction : bool (default=False)
     inpaint_x4_type : bool (default=False)
     
+    stop_inpainting_at_time_x1 : float (default = 0.0) Time step to stop inpainting.
+        t=0.0 implies that inpainting doesn't stop.
+
     stop_inpainting_at_time_x2 : float (default = 0.0) Time step to stop inpainting.
         t=0.0 implies that inpainting doesn't stop.
     add_noise_to_inpainted_x2_pos : float (default = 0.0) Scale of noise to add to inpainted
@@ -154,6 +155,8 @@ def generate(
     add_noise_to_inpainted_x4_type : float (default = 0.0)
     
     *these are the inpainting targets*
+    atom_types : Optional[list[int]] (default = None) Atom elements expected as a list of atomic numbers.
+    atom_pos : Optional[np.ndarray] (default = None) Atom positions as coordinates.
     center_of_mass : np.ndarray (3,) (default = np.zeros(3)) Must be supplied if target molecule is
         not already centered.
     surface : np.ndarray (75,3) (default = np.zeros((75,3)) Surface point coordinates.
@@ -220,6 +223,8 @@ def generate(
 
     # override conditioning options
     if unconditional:
+        inpaint_x1_pos = False
+        inpaint_x1_x = False
         inpaint_x2_pos = False
         inpaint_x3_pos = False
         inpaint_x3_x = False
@@ -227,15 +232,45 @@ def generate(
         inpaint_x4_direction = False
         inpaint_x4_type = False
 
-    do_partial_inpainting = False
+    do_partial_pharm_inpainting = False
     assert len(pharm_direction) == len(pharm_pos) and len(pharm_pos) == len(pharm_types)
     assert N_x4 >= len(pharm_pos)
     if N_x4 > len(pharm_pos):
-        do_partial_inpainting = True
+        do_partial_pharm_inpainting = True
+
+    do_partial_atom_inpainting = False
+    if atom_pos is not None:
+        try:
+            assert N_x1 >= len(atom_pos)
+        except AssertionError:
+            raise ValueError(f"Number of atoms in the target molecule ({len(atom_pos)}) must be less than or equal to the number of atoms in the model ({N_x1}).")
+        if N_x1 > len(atom_pos):
+            do_partial_atom_inpainting = True
+        else:
+            do_partial_atom_inpainting = False
+    if atom_types is not None:
+        try:
+            assert len(atom_types) == len(atom_pos)
+        except AssertionError:
+            raise ValueError(f"Number of atom types in the target molecule ({len(atom_types)}) must be equal to the number of atom positions to inpaint ({len(atom_pos)}).")
+        ptable = Chem.GetPeriodicTable()
+        # convert atomic numbers to symbols
+        atomic_number_to_symbol = {
+            ptable.GetAtomicNumber(symbol): symbol for symbol in params['dataset']['x1']['atom_types'] if isinstance(symbol, str)
+        }
+        atom_types = [atomic_number_to_symbol[z] for z in atom_types]
+
+    if atom_pos is None:
+        # initialize dummy atom positions
+        atom_pos = np.zeros((N_x1, 3))
+    if atom_types is None:
+        # initialize dummy atom types
+        atom_types = np.zeros(N_x1, dtype = int)
 
     # centering about provided center of mass (of x1)
     surface = surface - center_of_mass
     pharm_pos = pharm_pos - center_of_mass
+    atom_pos = atom_pos - center_of_mass
 
     # adding small noise to pharm_pos to avoid overlapping points (causes error when encoding clean structure)
     pharm_pos = pharm_pos + np.random.randn(*pharm_pos.shape) * 0.01
@@ -247,6 +282,19 @@ def generate(
     pharm_types = np.concatenate([np.array([0]), pharm_types], axis = 0) # virtual node
     pharm_pos = np.concatenate([np.array([[0.0, 0.0, 0.0]]), pharm_pos], axis = 0) # virtual node
     pharm_direction = np.concatenate([np.array([[0.0, 0.0, 0.0]]), pharm_direction], axis = 0) # virtual node
+    
+    # TODO EXPECT ATOMIC SYMBOLS: ADJUST INPUT
+    atom_pos = np.concatenate([np.array([[0.0, 0.0, 0.0]]), atom_pos], axis = 0)
+    # atom types are converted to one-hot encoding
+    atom_type_map = {atomic_symbol: i for i, atomic_symbol in enumerate(params['dataset']['x1']['atom_types'])}
+    # virtual node type is 0 (from param file) so don't need to add +1 like in the pharm_types case
+    atom_type_indices = np.array([atom_type_map[z] for z in atom_types])
+    atom_type_indices = np.concatenate([np.array([0]), atom_type_indices], axis = 0) # virtual node
+
+    num_atom_types = len(params['dataset']['x1']['atom_types']) + len(params['dataset']['x1']['charge_types'])
+    atom_types_one_hot = np.zeros((atom_type_indices.size, num_atom_types))
+    atom_types_one_hot[np.arange(atom_type_indices.size), atom_type_indices] = 1
+    atom_types = atom_types_one_hot
 
     # one-hot encodings
     pharm_types_one_hot = np.zeros((pharm_types.size, params['dataset']['x4']['max_node_types']))
@@ -257,8 +305,15 @@ def generate(
     electrostatics = electrostatics * params['dataset']['x3']['scale_node_features']
     pharm_types = pharm_types * params['dataset']['x4']['scale_node_features']
     pharm_direction = pharm_direction * params['dataset']['x4']['scale_vector_features']
+    atom_types = atom_types * params['dataset']['x1']['scale_atom_features']
 
     # defining inpainting targets
+    target_inpaint_x1_x = torch.as_tensor(atom_types, dtype=torch.float)
+    target_inpaint_x1_pos = torch.as_tensor(atom_pos, dtype=torch.float)
+    target_inpaint_x1_mask = torch.zeros(atom_pos.shape[0], dtype=torch.long)
+    target_inpaint_x1_mask[0] = 1
+    target_inpaint_x1_mask = target_inpaint_x1_mask == 0
+
     target_inpaint_x2_pos = torch.as_tensor(surface, dtype = torch.float)
     target_inpaint_x2_mask = torch.zeros(surface.shape[0], dtype = torch.long)
     target_inpaint_x2_mask[0] = 1
@@ -277,12 +332,38 @@ def generate(
     target_inpaint_x4_mask[0] = 1
     target_inpaint_x4_mask = target_inpaint_x4_mask == 0
 
+    x1_pos_inpainting_trajectory = None
+    x1_x_inpainting_trajectory = None
     x2_pos_inpainting_trajectory = None
     x3_pos_inpainting_trajectory = None
     x3_x_inpainting_trajectory = None
     x4_pos_inpainting_trajectory = None
     x4_direction_inpainting_trajectory = None
     x4_x_inpainting_trajectory = None
+
+    if inpaint_x1_pos:
+        x1_pos_inpainting_trajectory = forward_trajectory(
+            x = target_inpaint_x1_pos,
+
+            ts = params['noise_schedules']['x1']['ts'],
+            alpha_ts = params['noise_schedules']['x1']['alpha_ts'],
+            sigma_ts = params['noise_schedules']['x1']['sigma_ts'],
+            remove_COM_from_noise = True, # only removes COM from noise, not the x1_pos
+            mask = target_inpaint_x1_mask,
+            deterministic = False,
+        )
+    
+    if inpaint_x1_x:
+        x1_x_inpainting_trajectory = forward_trajectory(
+            x = target_inpaint_x1_x,
+
+            ts = params['noise_schedules']['x1']['ts'],
+            alpha_ts = params['noise_schedules']['x1']['alpha_ts'],
+            sigma_ts = params['noise_schedules']['x1']['sigma_ts'],
+            remove_COM_from_noise = False,
+            mask = target_inpaint_x1_mask,
+            deterministic = False,
+        )
 
     if inpaint_x2_pos:
         x2_pos_inpainting_trajectory = forward_trajectory(
@@ -355,6 +436,7 @@ def generate(
 
     ####################################
 
+    stop_inpainting_at_time_x1 = int(T*stop_inpainting_at_time_x1)
     stop_inpainting_at_time_x2 = int(T*stop_inpainting_at_time_x2)
     stop_inpainting_at_time_x3 = int(T*stop_inpainting_at_time_x3)
     stop_inpainting_at_time_x4 = int(T*stop_inpainting_at_time_x4)
@@ -417,6 +499,25 @@ def generate(
     assert x1_t == x3_t
     assert x1_t == x4_t
 
+    if (x1_t > stop_inpainting_at_time_x1):
+        if inpaint_x1_pos:
+            x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].repeat(batch_size, 1, 1)
+            if do_partial_atom_inpainting:
+                x1_pos_t = x1_pos_t.reshape(batch_size, -1, 3)
+                x1_pos_t[:, :x1_pos_t_inpaint.shape[1]] = x1_pos_t_inpaint
+                x1_pos_t = x1_pos_t.reshape(-1, 3)
+            else:
+                x1_pos_t = x1_pos_t_inpaint.reshape(-1, 3)
+
+        if inpaint_x1_x:
+            x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].repeat(batch_size, 1, 1)
+            if do_partial_atom_inpainting:
+                x1_x_t = x1_x_t.reshape(batch_size, -1, num_atom_types)
+                x1_x_t[:, :x1_x_t_inpaint.shape[1]] = x1_x_t_inpaint
+                x1_x_t = x1_x_t.reshape(-1, num_atom_types)
+            else:
+                x1_x_t = x1_x_t_inpaint.reshape(-1, num_atom_types)
+
     if (x2_t > stop_inpainting_at_time_x2):
         if inpaint_x2_pos:
             x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)        
@@ -439,7 +540,7 @@ def generate(
     if (x4_t > stop_inpainting_at_time_x4):
         if inpaint_x4_pos:
             x4_pos_t_inpaint = x4_pos_inpainting_trajectory[x4_t].repeat(batch_size, 1, 1)
-            if do_partial_inpainting:
+            if do_partial_pharm_inpainting:
                 x4_pos_t = x4_pos_t.reshape(batch_size, -1, 3)
                 x4_pos_t[:, :x4_pos_t_inpaint.shape[1]] = x4_pos_t_inpaint
                 x4_pos_t = x4_pos_t.reshape(-1, 3)
@@ -447,7 +548,7 @@ def generate(
                 x4_pos_t = x4_pos_t_inpaint.reshape(-1,3)
         if inpaint_x4_direction:
             x4_direction_t_inpaint = x4_direction_inpainting_trajectory[x4_t].repeat(batch_size, 1, 1)
-            if do_partial_inpainting:
+            if do_partial_pharm_inpainting:
                 x4_direction_t = x4_direction_t.reshape(batch_size, -1, 3)
                 x4_direction_t[:, :x4_direction_t_inpaint.shape[1]] = x4_direction_t_inpaint
                 x4_direction_t = x4_direction_t.reshape(-1, 3)
@@ -455,7 +556,7 @@ def generate(
                 x4_direction_t = x4_direction_t_inpaint.reshape(-1,3)
         if inpaint_x4_type:
             x4_x_t_inpaint = x4_x_inpainting_trajectory[x4_t].repeat(batch_size, 1, 1)
-            if do_partial_inpainting:
+            if do_partial_pharm_inpainting:
                 x4_x_t = x4_x_t.reshape(batch_size, -1, num_pharm_types)
                 x4_x_t[:, :x4_x_t_inpaint.shape[1]] = x4_x_t_inpaint
                 x4_x_t = x4_x_t.reshape(-1, num_pharm_types)
@@ -469,18 +570,23 @@ def generate(
     inpainting_dict = None
     if not unconditional:
         inpainting_dict = {
+            'inpaint_x1_pos': inpaint_x1_pos,
+            'inpaint_x1_x': inpaint_x1_x,
             'inpaint_x2_pos': inpaint_x2_pos,
             'inpaint_x3_pos': inpaint_x3_pos,
             'inpaint_x3_x': inpaint_x3_x,
             'inpaint_x4_pos': inpaint_x4_pos,
             'inpaint_x4_direction': inpaint_x4_direction,
             'inpaint_x4_type': inpaint_x4_type,
+            'x1_pos_inpainting_trajectory': x1_pos_inpainting_trajectory,
+            'x1_x_inpainting_trajectory': x1_x_inpainting_trajectory,
             'x2_pos_inpainting_trajectory': x2_pos_inpainting_trajectory,
             'x3_pos_inpainting_trajectory': x3_pos_inpainting_trajectory,
             'x3_x_inpainting_trajectory': x3_x_inpainting_trajectory,
             'x4_pos_inpainting_trajectory': x4_pos_inpainting_trajectory,
             'x4_direction_inpainting_trajectory': x4_direction_inpainting_trajectory,
             'x4_x_inpainting_trajectory': x4_x_inpainting_trajectory,
+            'stop_inpainting_at_time_x1': stop_inpainting_at_time_x1,
             'stop_inpainting_at_time_x2': stop_inpainting_at_time_x2,
             'stop_inpainting_at_time_x3': stop_inpainting_at_time_x3,
             'stop_inpainting_at_time_x4': stop_inpainting_at_time_x4,
@@ -490,7 +596,8 @@ def generate(
             'add_noise_to_inpainted_x4_pos': add_noise_to_inpainted_x4_pos,
             'add_noise_to_inpainted_x4_direction': add_noise_to_inpainted_x4_direction,
             'add_noise_to_inpainted_x4_type': add_noise_to_inpainted_x4_type,
-            'do_partial_inpainting': do_partial_inpainting,
+            'do_partial_pharm_inpainting': do_partial_pharm_inpainting,
+            'do_partial_atom_inpainting': do_partial_atom_inpainting,
         }
 
     inference_step = partial(
@@ -509,7 +616,7 @@ def generate(
         inpainting_dict=inpainting_dict,
     )
     if verbose:
-        pbar = tqdm(total=len(time_steps) -1 + sum(harmonize_jumps) * int(harmonize), position=0, leave=True, miniters=50, mininterval=1000)
+        pbar = tqdm(total=len(time_steps) -1 + sum(harmonize_jumps) * int(harmonize), position=0, leave=True, miniters=50, maxinterval=1000)
     else:
         pbar = None
 
@@ -522,8 +629,8 @@ def generate(
             x2_pos_t=x2_pos_t, x2_x_t=x2_x_t, x2_batch=x2_batch,
             x3_pos_t=x3_pos_t, x3_x_t=x3_x_t, x3_batch=x3_batch,
             x4_pos_t=x4_pos_t, x4_direction_t=x4_direction_t, x4_x_t=x4_x_t, x4_batch=x4_batch,
-            noise_dict=noise_dict,
             pbar=pbar,
+            include_x0_pred=False,
         )
 
         # update states: x_{t-1} -> x_{t}
@@ -537,7 +644,6 @@ def generate(
         x4_pos_t = next_state['x4_pos_t_1']
         x4_direction_t = next_state['x4_direction_t_1']
         x4_x_t = next_state['x4_x_t_1']
-        noise_dict = next_state['noise_dict']
 
         # TODO store trajectories
 

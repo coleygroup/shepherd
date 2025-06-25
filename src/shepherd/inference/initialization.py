@@ -10,7 +10,8 @@ def _initialize_x1_state(batch_size: int,
                          N_x1: int,
                          params: dict,
                          prior_noise_scale: float,
-                         include_virtual_node: bool) -> tuple:
+                         include_virtual_node: bool
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Initialize the x1 state.
 
@@ -94,7 +95,8 @@ def _initialize_x2_state(batch_size: int,
                          N_x2: int,
                          params: dict,
                          prior_noise_scale: float,
-                         include_virtual_node: bool) -> tuple:
+                         include_virtual_node: bool
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Initialize the x2 state.
 
@@ -153,7 +155,8 @@ def _initialize_x3_state(batch_size: int,
                          N_x3: int,
                          params: dict,
                          prior_noise_scale: float,
-                         include_virtual_node: bool) -> tuple:
+                         include_virtual_node: bool
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Initialize the x3 state.
 
@@ -209,7 +212,8 @@ def _initialize_x4_state(batch_size: int,
                          N_x4: int,
                          params: dict,
                          prior_noise_scale: float,
-                         include_virtual_node: bool) -> tuple:
+                         include_virtual_node: bool
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Initialize the x4 state.
 

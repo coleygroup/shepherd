@@ -382,11 +382,14 @@ def _inference_step(
     x3_t = t
     x4_t = t
 
+    stop_inpainting_at_time_x1 = 0.0
     stop_inpainting_at_time_x2 = 0.0
     stop_inpainting_at_time_x3 = 0.0
     stop_inpainting_at_time_x4 = 0.0
 
     if inpainting_dict is None: # unconditional
+        inpaint_x1_pos = False
+        inpaint_x1_x = False
         inpaint_x2_pos = False
         inpaint_x3_pos = False
         inpaint_x3_x = False
@@ -395,12 +398,22 @@ def _inference_step(
         inpaint_x4_type = False
 
     if inpainting_dict is not None: # conditional
+        inpaint_x1_pos = inpainting_dict['inpaint_x1_pos']
+        inpaint_x1_x = inpainting_dict['inpaint_x1_x']
         inpaint_x2_pos = inpainting_dict['inpaint_x2_pos']
         inpaint_x3_pos = inpainting_dict['inpaint_x3_pos']
         inpaint_x3_x = inpainting_dict['inpaint_x3_x']
         inpaint_x4_pos = inpainting_dict['inpaint_x4_pos']
         inpaint_x4_direction = inpainting_dict['inpaint_x4_direction']
         inpaint_x4_type = inpainting_dict['inpaint_x4_type']
+
+        if inpaint_x1_pos:
+            x1_pos_inpainting_trajectory = inpainting_dict['x1_pos_inpainting_trajectory']
+            stop_inpainting_at_time_x1 = inpainting_dict['stop_inpainting_at_time_x1']
+
+        if inpaint_x1_x:
+            x1_x_inpainting_trajectory = inpainting_dict['x1_x_inpainting_trajectory']
+            stop_inpainting_at_time_x1 = inpainting_dict['stop_inpainting_at_time_x1']
 
         if inpaint_x2_pos:
             x2_pos_inpainting_trajectory = inpainting_dict['x2_pos_inpainting_trajectory']
@@ -431,7 +444,8 @@ def _inference_step(
             add_noise_to_inpainted_x4_type = inpainting_dict['add_noise_to_inpainted_x4_type']
         else:
             stop_inpainting_at_time_x4 = 0.0
-        do_partial_inpainting = inpainting_dict['do_partial_inpainting']
+        do_partial_pharm_inpainting = inpainting_dict['do_partial_pharm_inpainting']
+        do_partial_atom_inpainting = inpainting_dict['do_partial_atom_inpainting']
     
     # harmonize
     # harmonization needs careful consideration with subsequenced timesteps
@@ -495,15 +509,36 @@ def _inference_step(
             # continue the loop from the *next* scheduled step after the original t
 
     # inpainting logic
+    ## HAVE TO RECENTER SOMEWHERE
+    if (x1_t > stop_inpainting_at_time_x1):
+        num_atom_types = len(params['dataset']['x1']['atom_types']) + len(params['dataset']['x1']['charge_types'])
+        if inpaint_x1_pos:
+            x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].repeat(batch_size, 1, 1)
+            if do_partial_atom_inpainting:
+                x1_pos_t = x1_pos_t.reshape(batch_size, -1, 3)
+                x1_pos_t[:, :x1_pos_t_inpaint.shape[1]] = x1_pos_t_inpaint
+                x1_pos_t = x1_pos_t.reshape(-1, 3)
+            else:
+                x1_pos_t = x1_pos_t_inpaint.reshape(-1, 3)
+
+        if inpaint_x1_x:
+            x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].repeat(batch_size, 1, 1)
+            if do_partial_atom_inpainting:
+                x1_x_t = x1_x_t.reshape(batch_size, -1, num_atom_types)
+                x1_x_t[:, :x1_x_t_inpaint.shape[1]] = x1_x_t_inpaint
+                x1_x_t = x1_x_t.reshape(-1, num_atom_types)
+            else:
+                x1_x_t = x1_x_t_inpaint.reshape(-1, num_atom_types)
+
     if (x2_t > stop_inpainting_at_time_x2) and inpaint_x2_pos:
-        x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)        
+        x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)
         noise = torch.randn_like(x2_pos_t)
         noise[virtual_node_mask_x2] = 0.0
         x2_pos_t = x2_pos_t + add_noise_to_inpainted_x2_pos * noise
     
     if (x3_t > stop_inpainting_at_time_x3):
         if inpaint_x3_pos:
-            x3_pos_t = torch.cat([x3_pos_inpainting_trajectory[x3_t] for _ in range(batch_size)], dim = 0)        
+            x3_pos_t = torch.cat([x3_pos_inpainting_trajectory[x3_t] for _ in range(batch_size)], dim = 0)
             noise = torch.randn_like(x3_pos_t)
             noise[virtual_node_mask_x3] = 0.0
             x3_pos_t = x3_pos_t + add_noise_to_inpainted_x3_pos * noise
@@ -518,7 +553,7 @@ def _inference_step(
             x4_pos_t_inpaint = torch.cat([x4_pos_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
             noise = torch.randn_like(x4_pos_t)
             noise[virtual_node_mask_x4] = 0.0
-            if do_partial_inpainting:
+            if do_partial_pharm_inpainting:
                 x4_pos_t_inpaint = x4_pos_t_inpaint.reshape(batch_size, -1, 3)
                 noise = noise.reshape(batch_size, -1, 3)[:, :x4_pos_t_inpaint.shape[1]]
 
@@ -534,7 +569,7 @@ def _inference_step(
             x4_direction_t_inpaint = torch.cat([x4_direction_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
             noise = torch.randn_like(x4_direction_t)
             noise[virtual_node_mask_x4] = 0.0
-            if do_partial_inpainting:
+            if do_partial_pharm_inpainting:
                 x4_direction_t_inpaint = x4_direction_t_inpaint.reshape(batch_size, -1, 3)
                 noise = noise.reshape(batch_size, -1, 3)[:, :x4_direction_t_inpaint.shape[1]]
 
@@ -550,7 +585,7 @@ def _inference_step(
             x4_x_t_inpaint = torch.cat([x4_x_inpainting_trajectory[x4_t] for _ in range(batch_size)], dim = 0)
             noise = torch.randn_like(x4_x_t)
             noise[virtual_node_mask_x4] = 0.0
-            if do_partial_inpainting:
+            if do_partial_pharm_inpainting:
                 x4_x_t_inpaint = x4_x_t_inpaint.reshape(batch_size, -1, num_pharm_types)
                 noise = noise.reshape(batch_size, -1, num_pharm_types)[:, :x4_x_t_inpaint.shape[1]]
 
@@ -565,7 +600,6 @@ def _inference_step(
 
     # get noise parameters for current timestep t and previous timestep prev_t
     noise_params_current = _get_noise_params_for_timestep(params, current_t)
-    noise_params_prev = _get_noise_params_for_timestep(params, prev_t) # Need params for interval end
 
     # pass only current params to model input preparation
     x1_params_current = noise_params_current['x1']
