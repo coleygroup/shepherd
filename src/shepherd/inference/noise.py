@@ -26,7 +26,10 @@ def forward_jump_parameters(t_start_idx, jump, sigma_ts):
     return alpha_dash_ts_[-1], sigma_dash_ts_[-1], t_end_idx
 
 
-def forward_jump(x, t_start, jump, sigma_ts, remove_COM_from_noise = False, batch = None, mask = None):
+def forward_jump(x: torch.Tensor, t_start, jump, sigma_ts,
+                 remove_COM_from_noise = False,
+                 batch = None,
+                 mask = None) -> tuple[torch.Tensor, int]:
     """
     Perform a forward jump for a given timestep.
 
@@ -60,7 +63,11 @@ def forward_jump(x, t_start, jump, sigma_ts, remove_COM_from_noise = False, batc
     return x_jump, t_end
 
 
-def forward_trajectory(x, ts, alpha_ts, sigma_ts, remove_COM_from_noise = False, mask = None, deterministic = False):
+def forward_trajectory(x, ts, alpha_ts, sigma_ts,
+                       remove_COM_from_noise = False,
+                       mask = None,
+                       deterministic = False,
+                       batch = None) -> dict[int, torch.Tensor]:
     """
     Simulate a forward noising trajectory.
 
@@ -92,6 +99,9 @@ def forward_trajectory(x, ts, alpha_ts, sigma_ts, remove_COM_from_noise = False,
         noise = torch.randn(x.shape)
         if remove_COM_from_noise:
             noise = noise - torch.mean(noise[mask], dim = 0)
+            # if batch is None:
+            #     batch = torch.zeros(x.shape[0], dtype=torch.long)
+            # noise = noise - torch_scatter.scatter_mean(noise[mask], batch[mask], dim=0)[batch]
         noise[~mask, ...] = 0.0
         
         if deterministic:
