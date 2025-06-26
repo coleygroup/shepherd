@@ -625,7 +625,34 @@ def _inference_step(
     x1_x_out = output_dict['x1']['decoder']['denoiser']['x_out'].detach().cpu()
     x1_bond_edge_x_out = output_dict['x1']['decoder']['denoiser']['bond_edge_x_out'].detach().cpu()
     x1_pos_out = output_dict['x1']['decoder']['denoiser']['pos_out'].detach().cpu()
-    x1_pos_out = x1_pos_out - torch_scatter.scatter_mean(x1_pos_out[~virtual_node_mask_x1], x1_batch[~virtual_node_mask_x1], dim = 0)[x1_batch] # removing COM from predicted noise 
+
+    # Correct the COM during inpainting
+    if inpaint_x1_pos and do_partial_atom_inpainting and (x1_t > stop_inpainting_at_time_x1):
+        x1_alpha_dash_t = x1_params_current['alpha_dash_t']
+        x1_sigma_dash_t = x1_params_current['sigma_dash_t']
+
+        # Predict x0 from model output
+        x1_pos_0_pred = (x1_pos_t - x1_sigma_dash_t * x1_pos_out) / x1_alpha_dash_t
+
+        # Get ground truth x0 for inpainted atoms
+        x1_pos_0_inpaint_reshaped = inpainting_dict['x1_pos_inpainting_trajectory'][0].repeat(batch_size, 1, 1)
+
+        # Correct the x0 prediction by inserting the ground truth for inpainted atoms
+        x1_pos_0_corrected = x1_pos_0_pred.clone()
+        x1_pos_0_corrected_reshaped = x1_pos_0_corrected.reshape(batch_size, -1, 3)
+        num_inpaint_atoms_this_batch = x1_pos_0_inpaint_reshaped.shape[1]
+        x1_pos_0_corrected_reshaped[:, :num_inpaint_atoms_this_batch, :] = x1_pos_0_inpaint_reshaped
+        x1_pos_0_corrected = x1_pos_0_corrected_reshaped.reshape(-1, 3)
+
+        # Recenter the corrected x0 prediction to maintain translational invariance
+        x1_pos_0_corrected_com = torch_scatter.scatter_mean(x1_pos_0_corrected[~virtual_node_mask_x1], x1_batch[~virtual_node_mask_x1], dim=0)
+        x1_pos_0_corrected = x1_pos_0_corrected - x1_pos_0_corrected_com[x1_batch]
+
+        # Derive the corrected noise (eps_theta) from the corrected x0
+        x1_pos_out = (x1_pos_t - x1_alpha_dash_t * x1_pos_0_corrected) / x1_sigma_dash_t
+    else:
+        # Original logic for non-inpainting case
+        x1_pos_out = x1_pos_out - torch_scatter.scatter_mean(x1_pos_out[~virtual_node_mask_x1], x1_batch[~virtual_node_mask_x1], dim = 0)[x1_batch] # removing COM from predicted noise 
 
     x1_x_out[virtual_node_mask_x1, :] = 0.0
     x1_pos_out[virtual_node_mask_x1, :] = 0.0
