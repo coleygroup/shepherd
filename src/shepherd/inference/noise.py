@@ -67,7 +67,8 @@ def forward_trajectory(x, ts, alpha_ts, sigma_ts,
                        remove_COM_from_noise = False,
                        mask = None,
                        deterministic = False,
-                       batch = None) -> dict[int, torch.Tensor]:
+                       batch = None,
+                       batch_size: int | None = None) -> dict[int, torch.Tensor]:
     """
     Simulate a forward noising trajectory.
 
@@ -81,39 +82,58 @@ def forward_trajectory(x, ts, alpha_ts, sigma_ts,
         mask: The mask tensor.
         deterministic: Whether to use a deterministic trajectory
         (i.e., clean structure for entire trajectory).
+        batch: The batch tensor.
+        batch_size: If provided and > 1, the input `x` (and corresponding `mask`/`batch` if given)
+            will be repeated `batch_size` times to create `batch_size` independent trajectories.
     """
     if mask is None:
         mask = torch.ones(x.shape[0]) == 1.0
-    
+
+    if batch_size is not None and batch_size > 1:
+        orig_num_nodes = x.shape[0]
+
+        # tensor keeps the same rank expected by downstream code (typically N x D)
+        x = x.unsqueeze(0).repeat(batch_size, *([1] * x.dim())).reshape(-1, *x.shape[1:])
+        if mask is not None:
+            mask = mask.repeat(batch_size, *([1] * (mask.dim() - 1)))
+
+        # TODO: this doesn't work for bonds; not sure when it would not be None
+        if batch is not None:
+            batch = batch.repeat(batch_size)
+        else:
+            # Generate batch indices like [0 0 ... 1 1 ... 2 2 ...]
+            batch = torch.repeat_interleave(torch.arange(batch_size), repeats=orig_num_nodes)
     if remove_COM_from_noise:
         assert x.shape[1] == 3
-    
+
     trajectory = {0:x}
-    
+
     x_t = x
     for t_idx, t in enumerate(ts):
-        
+
         alpha_t = alpha_ts[t_idx]
         sigma_t = sigma_ts[t_idx]
-        
+
         noise = torch.randn(x.shape)
         if remove_COM_from_noise:
-            noise = noise - torch.mean(noise[mask], dim = 0)
-            # if batch is None:
-            #     batch = torch.zeros(x.shape[0], dtype=torch.long)
-            # noise = noise - torch_scatter.scatter_mean(noise[mask], batch[mask], dim=0)[batch]
+            if batch is not None:
+                # Subtract COM for each batch independently
+                noise = noise - torch_scatter.scatter_mean(noise[mask], index=batch[mask], dim=0)[batch]
+            else:
+                # Fallback to global COM removal (single trajectory case)
+                noise = noise - torch.mean(noise[mask], dim = 0)
         noise[~mask, ...] = 0.0
-        
+
         if deterministic:
             noise = 0.0
-        
+
         x_t_plus_1 = alpha_t * x_t + sigma_t * noise
         x_t_plus_1[~mask, ...] = x_t[~mask, ...]
-        
+
         trajectory[t] = x_t_plus_1
-        
+
         x_t = x_t_plus_1
-    
+
     return trajectory
 
 
