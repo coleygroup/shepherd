@@ -190,7 +190,7 @@ def generate(
 
     Returns
     -------
-    generated_structures : List[Dict]
+    generated_structures : list[dict]
         Output dictionary is structured as:
         'x1': {
                 'atoms': np.ndarray (N_x1,) of ints for atomic numbers.
@@ -351,6 +351,7 @@ def generate(
             remove_COM_from_noise = True, # only removes COM from noise, not the x1_pos
             mask = target_inpaint_x1_mask,
             deterministic = False,
+            batch_size = batch_size,
         )
     
     if inpaint_x1_x:
@@ -363,6 +364,7 @@ def generate(
             remove_COM_from_noise = False,
             mask = target_inpaint_x1_mask,
             deterministic = False,
+            batch_size = batch_size,
         )
 
     if inpaint_x2_pos:
@@ -375,6 +377,7 @@ def generate(
             remove_COM_from_noise = False,
             mask = target_inpaint_x2_mask,
             deterministic = False,
+            batch_size = None,
         )
 
     if inpaint_x3_pos:
@@ -387,6 +390,7 @@ def generate(
             remove_COM_from_noise = False,
             mask = target_inpaint_x3_mask,
             deterministic = False,
+            batch_size = None,
         )
     if inpaint_x3_x:
         x3_x_inpainting_trajectory = forward_trajectory(
@@ -398,6 +402,7 @@ def generate(
             remove_COM_from_noise = False,
             mask = target_inpaint_x3_mask,
             deterministic = False,
+            batch_size = None,
         )
 
     if inpaint_x4_type:
@@ -410,6 +415,7 @@ def generate(
             remove_COM_from_noise = False,
             mask = target_inpaint_x4_mask,
             deterministic = False,
+            batch_size = None,
         )
     if inpaint_x4_pos:
         x4_pos_inpainting_trajectory = forward_trajectory(
@@ -421,6 +427,7 @@ def generate(
             remove_COM_from_noise = False,
             mask = target_inpaint_x4_mask,
             deterministic = False,
+            batch_size = None,
         )
     if inpaint_x4_direction:
         x4_direction_inpainting_trajectory = forward_trajectory(
@@ -432,6 +439,7 @@ def generate(
             remove_COM_from_noise = False,
             mask = target_inpaint_x4_mask,
             deterministic = False,
+            batch_size = None,
         )
 
     ####################################
@@ -501,33 +509,33 @@ def generate(
 
     if (x1_t > stop_inpainting_at_time_x1):
         if inpaint_x1_pos:
-            x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].repeat(batch_size, 1, 1)
             if do_partial_atom_inpainting:
+                x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].reshape(batch_size, -1, 3)
                 x1_pos_t = x1_pos_t.reshape(batch_size, -1, 3)
                 x1_pos_t[:, :x1_pos_t_inpaint.shape[1]] = x1_pos_t_inpaint
                 x1_pos_t = x1_pos_t.reshape(-1, 3)
             else:
-                x1_pos_t = x1_pos_t_inpaint.reshape(-1, 3)
+                x1_pos_t = x1_pos_inpainting_trajectory[x1_t]
 
         if inpaint_x1_x:
-            x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].repeat(batch_size, 1, 1)
             if do_partial_atom_inpainting:
+                x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].reshape(batch_size, -1, num_atom_types)
                 x1_x_t = x1_x_t.reshape(batch_size, -1, num_atom_types)
                 x1_x_t[:, :x1_x_t_inpaint.shape[1]] = x1_x_t_inpaint
                 x1_x_t = x1_x_t.reshape(-1, num_atom_types)
             else:
-                x1_x_t = x1_x_t_inpaint.reshape(-1, num_atom_types)
+                x1_x_t = x1_x_inpainting_trajectory[x1_t]
 
     if (x2_t > stop_inpainting_at_time_x2):
         if inpaint_x2_pos:
-            x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)        
+            x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)
             noise = torch.randn_like(x2_pos_t)
             noise[virtual_node_mask_x2] = 0.0
             x2_pos_t = x2_pos_t + add_noise_to_inpainted_x2_pos * noise
 
     if (x3_t > stop_inpainting_at_time_x3):
         if inpaint_x3_pos:
-            x3_pos_t = torch.cat([x3_pos_inpainting_trajectory[x3_t] for _ in range(batch_size)], dim = 0)        
+            x3_pos_t = torch.cat([x3_pos_inpainting_trajectory[x3_t] for _ in range(batch_size)], dim = 0)
             noise = torch.randn_like(x3_pos_t)
             noise[virtual_node_mask_x3] = 0.0
             x3_pos_t = x3_pos_t + add_noise_to_inpainted_x3_pos * noise

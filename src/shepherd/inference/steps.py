@@ -8,6 +8,8 @@ import torch
 import numpy as np
 import torch_scatter
 
+from shepherd.lightning_module import LightningModule
+
 from shepherd.inference.noise import (
     _get_noise_params_for_timestep,
     forward_jump
@@ -331,22 +333,22 @@ def _prepare_model_input(device, dtype, batch_size, t,
 
 
 def _inference_step(
-    model_pl, params,
+    model_pl: LightningModule, params: dict,
     # times
-    time_steps, current_time_idx,
-    harmonize, harmonize_ts, harmonize_jumps,
-    batch_size,
-    denoising_noise_scale, inject_noise_at_ts, inject_noise_scales,
+    time_steps: list[float], current_time_idx: int,
+    harmonize: bool, harmonize_ts: list[int], harmonize_jumps: list[int],
+    batch_size: int,
+    denoising_noise_scale: float, inject_noise_at_ts: list[int], inject_noise_scales: list[float],
     # current states
-    x1_pos_t, x1_x_t, x1_bond_edge_x_t, x1_batch, bond_edge_index_x1, virtual_node_mask_x1,
-    x2_pos_t, x2_x_t, x2_batch, virtual_node_mask_x2,
-    x3_pos_t, x3_x_t, x3_batch, virtual_node_mask_x3,
-    x4_pos_t, x4_direction_t, x4_x_t, x4_batch, virtual_node_mask_x4,
+    x1_pos_t: torch.Tensor, x1_x_t: torch.Tensor, x1_bond_edge_x_t: torch.Tensor, x1_batch: torch.Tensor, bond_edge_index_x1: torch.Tensor, virtual_node_mask_x1: torch.Tensor,
+    x2_pos_t: torch.Tensor, x2_x_t: torch.Tensor, x2_batch: torch.Tensor, virtual_node_mask_x2: torch.Tensor,
+    x3_pos_t: torch.Tensor, x3_x_t: torch.Tensor, x3_batch: torch.Tensor, virtual_node_mask_x3: torch.Tensor,
+    x4_pos_t: torch.Tensor, x4_direction_t: torch.Tensor, x4_x_t: torch.Tensor, x4_batch: torch.Tensor, virtual_node_mask_x4: torch.Tensor,
     # inpainting
     inpainting_dict: Optional[dict] = None,
     # progress bar
     pbar: Optional[tqdm] = None,
-    include_x0_pred=False,
+    include_x0_pred: bool = False,
     ):
     """
     Inner loop for the denoising process.
@@ -446,6 +448,7 @@ def _inference_step(
             stop_inpainting_at_time_x4 = 0.0
         do_partial_pharm_inpainting = inpainting_dict['do_partial_pharm_inpainting']
         do_partial_atom_inpainting = inpainting_dict['do_partial_atom_inpainting']
+        inpainted_atom_mask = inpainting_dict.get('inpainted_atom_mask', None)
     
     # harmonize
     # harmonization needs careful consideration with subsequenced timesteps
@@ -510,26 +513,33 @@ def _inference_step(
             # continue the loop from the *next* scheduled step after the original t
 
     # inpainting logic
-    ## HAVE TO RECENTER SOMEWHERE
     if (x1_t > stop_inpainting_at_time_x1):
         num_atom_types = len(params['dataset']['x1']['atom_types']) + len(params['dataset']['x1']['charge_types'])
         if inpaint_x1_pos:
-            x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].repeat(batch_size, 1, 1)
             if do_partial_atom_inpainting:
-                x1_pos_t = x1_pos_t.reshape(batch_size, -1, 3)
-                x1_pos_t[:, :x1_pos_t_inpaint.shape[1]] = x1_pos_t_inpaint
-                x1_pos_t = x1_pos_t.reshape(-1, 3)
+                x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].reshape(batch_size, -1, 3)
+                x1_pos_t_reshaped = x1_pos_t.reshape(batch_size, -1, 3)
+                if inpainted_atom_mask is not None:
+                    x1_pos_t_reshaped[:, inpainted_atom_mask] = x1_pos_t_inpaint[:, inpainted_atom_mask]
+                else:
+                    num_scaffold_atoms = x1_pos_t_inpaint.shape[1]
+                    x1_pos_t_reshaped[:, :num_scaffold_atoms] = x1_pos_t_inpaint
+                x1_pos_t = x1_pos_t_reshaped.reshape(-1, 3)
             else:
-                x1_pos_t = x1_pos_t_inpaint.reshape(-1, 3)
+                x1_pos_t = x1_pos_inpainting_trajectory[x1_t]
 
         if inpaint_x1_x:
-            x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].repeat(batch_size, 1, 1)
             if do_partial_atom_inpainting:
-                x1_x_t = x1_x_t.reshape(batch_size, -1, num_atom_types)
-                x1_x_t[:, :x1_x_t_inpaint.shape[1]] = x1_x_t_inpaint
-                x1_x_t = x1_x_t.reshape(-1, num_atom_types)
+                x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].reshape(batch_size, -1, num_atom_types)
+                x1_x_t_reshaped = x1_x_t.reshape(batch_size, -1, num_atom_types)
+                if inpainted_atom_mask is not None:
+                    x1_x_t_reshaped[:, inpainted_atom_mask] = x1_x_t_inpaint[:, inpainted_atom_mask]
+                else:
+                    num_scaffold_atoms = x1_x_t_inpaint.shape[1]
+                    x1_x_t_reshaped[:, :num_scaffold_atoms] = x1_x_t_inpaint
+                x1_x_t = x1_x_t_reshaped.reshape(-1, num_atom_types)
             else:
-                x1_x_t = x1_x_t_inpaint.reshape(-1, num_atom_types)
+                x1_x_t = x1_x_inpainting_trajectory[x1_t]
 
     if (x2_t > stop_inpainting_at_time_x2) and inpaint_x2_pos:
         x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)
@@ -610,7 +620,7 @@ def _inference_step(
 
     # get current data
     input_dict = _prepare_model_input(
-        model_pl.model.device, torch.float32, batch_size, current_t,
+        model_pl.device, torch.float32, batch_size, current_t,
         x1_pos_t, x1_x_t, x1_batch, x1_bond_edge_x_t, bond_edge_index_x1, virtual_node_mask_x1, x1_params_current,
         x2_pos_t, x2_x_t, x2_batch, virtual_node_mask_x2, x2_params_current,
         x3_pos_t, x3_x_t, x3_batch, virtual_node_mask_x3, x3_params_current,
@@ -635,13 +645,16 @@ def _inference_step(
         x1_pos_0_pred = (x1_pos_t - x1_sigma_dash_t * x1_pos_out) / x1_alpha_dash_t
 
         # Get ground truth x0 for inpainted atoms
-        x1_pos_0_inpaint_reshaped = inpainting_dict['x1_pos_inpainting_trajectory'][0].repeat(batch_size, 1, 1)
+        x1_pos_0_inpaint_reshaped = inpainting_dict['x1_pos_inpainting_trajectory'][0].reshape(batch_size, -1, 3)
 
         # Correct the x0 prediction by inserting the ground truth for inpainted atoms
         x1_pos_0_corrected = x1_pos_0_pred.clone()
         x1_pos_0_corrected_reshaped = x1_pos_0_corrected.reshape(batch_size, -1, 3)
-        num_inpaint_atoms_this_batch = x1_pos_0_inpaint_reshaped.shape[1]
-        x1_pos_0_corrected_reshaped[:, :num_inpaint_atoms_this_batch, :] = x1_pos_0_inpaint_reshaped
+        num_scaffold_atoms = x1_pos_0_inpaint_reshaped.shape[1]
+        if inpainted_atom_mask is not None:
+            x1_pos_0_corrected_reshaped[:, inpainted_atom_mask] = x1_pos_0_inpaint_reshaped[:, inpainted_atom_mask]
+        else:
+            x1_pos_0_corrected_reshaped[:, :num_scaffold_atoms] = x1_pos_0_inpaint_reshaped
         x1_pos_0_corrected = x1_pos_0_corrected_reshaped.reshape(-1, 3)
 
         # Recenter the corrected x0 prediction to maintain translational invariance
@@ -777,11 +790,11 @@ def _inference_step(
 
 
 def _extract_generated_samples(
-        x1_x_t, x1_pos_t, x1_bond_edge_x_t, virtual_node_mask_x1,
-        x2_pos_t, virtual_node_mask_x2,
-        x3_pos_t, x3_x_t, virtual_node_mask_x3,
-        x4_pos_t, x4_direction_t, x4_x_t, virtual_node_mask_x4,
-        params, batch_size,
+        x1_x_t: torch.Tensor, x1_pos_t: torch.Tensor, x1_bond_edge_x_t: torch.Tensor, virtual_node_mask_x1: torch.Tensor,
+        x2_pos_t: torch.Tensor, virtual_node_mask_x2: torch.Tensor,
+        x3_pos_t: torch.Tensor, x3_x_t: torch.Tensor, virtual_node_mask_x3: torch.Tensor,
+        x4_pos_t: torch.Tensor, x4_direction_t: torch.Tensor, x4_x_t: torch.Tensor, virtual_node_mask_x4: torch.Tensor,
+        params: dict, batch_size: int,
         ):
     """
     Extract final structures, and re-scale.
