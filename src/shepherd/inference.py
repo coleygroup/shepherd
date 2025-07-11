@@ -1056,26 +1056,25 @@ def inference_sample(
                 x4_c_t_injected = x4_c_t + inject_noise_scale
         
         
-        # FIXED 7/10/2025: replaced var_dash_t with sigma_t**2 --> this was a bug in the original code
         # reverse denoising step - x1
-        x1_pos_t_1 = ((1. / x1_alpha_t) * x1_pos_t)  - ((x1_sigma_t**2 /(x1_alpha_t * x1_sigma_dash_t)) * x1_pos_out)  +  (x1_c_t_injected * x1_pos_epsilon)
-        x1_x_t_1 = ((1. / x1_alpha_t) * x1_x_t)  - ((x1_sigma_t**2 /(x1_alpha_t * x1_sigma_dash_t)) * x1_x_out)  +  (x1_c_t * x1_x_epsilon)
-        x1_bond_edge_x_t_1 = ((1. / x1_alpha_t) * x1_bond_edge_x_t)  - ((x1_sigma_t**2 /(x1_alpha_t * x1_sigma_dash_t)) * x1_bond_edge_x_out)  +  (x1_c_t * x1_bond_edge_x_epsilon)
+        x1_pos_t_1 = ((1. / x1_alpha_t) * x1_pos_t)  - ((x1_var_dash_t/(x1_alpha_t * x1_sigma_dash_t)) * x1_pos_out)  +  (x1_c_t_injected * x1_pos_epsilon)
+        x1_x_t_1 = ((1. / x1_alpha_t) * x1_x_t)  - ((x1_var_dash_t/(x1_alpha_t * x1_sigma_dash_t)) * x1_x_out)  +  (x1_c_t * x1_x_epsilon)
+        x1_bond_edge_x_t_1 = ((1. / x1_alpha_t) * x1_bond_edge_x_t)  - ((x1_var_dash_t/(x1_alpha_t * x1_sigma_dash_t)) * x1_bond_edge_x_out)  +  (x1_c_t * x1_bond_edge_x_epsilon)
         
         # reverse denoising step - x2
-        x2_pos_t_1 = ((1. / float(x2_alpha_t)) * x2_pos_t)  - ((x2_sigma_t**2 /(x2_alpha_t * x2_sigma_dash_t)) * x2_pos_out)  +  (x2_c_t_injected * x2_pos_epsilon)
+        x2_pos_t_1 = ((1. / float(x2_alpha_t)) * x2_pos_t)  - ((x2_var_dash_t/(x2_alpha_t * x2_sigma_dash_t)) * x2_pos_out)  +  (x2_c_t_injected * x2_pos_epsilon)
         x2_x_t_1 = x2_x_t
-
+    
         # reverse denoising step - x3
-        x3_pos_t_1 = ((1. / float(x3_alpha_t)) * x3_pos_t)  - ((x3_sigma_t**2 /(x3_alpha_t * x3_sigma_dash_t)) * x3_pos_out)  +  (x3_c_t_injected * x3_pos_epsilon)
-        x3_x_t_1 = ((1. / x3_alpha_t) * x3_x_t)  - ((x3_sigma_t**2 /(x3_alpha_t * x3_sigma_dash_t)) * x3_x_out)  +  (x3_c_t * x3_x_epsilon)
+        x3_pos_t_1 = ((1. / float(x3_alpha_t)) * x3_pos_t)  - ((x3_var_dash_t/(x3_alpha_t * x3_sigma_dash_t)) * x3_pos_out)  +  (x3_c_t_injected * x3_pos_epsilon)
+        x3_x_t_1 = ((1. / x3_alpha_t) * x3_x_t)  - ((x3_var_dash_t/(x3_alpha_t * x3_sigma_dash_t)) * x3_x_out)  +  (x3_c_t * x3_x_epsilon)
     
         # reverse denoising step - x4
-        x4_pos_t_1 = ((1. / float(x4_alpha_t)) * x4_pos_t)  - ((x4_sigma_t**2 /(x4_alpha_t * x4_sigma_dash_t)) * x4_pos_out)  +  (x4_c_t_injected * x4_pos_epsilon)
-        x4_direction_t_1 = ((1. / float(x4_alpha_t)) * x4_direction_t)  - ((x4_sigma_t**2 /(x4_alpha_t * x4_sigma_dash_t)) * x4_direction_out)  +  (x4_c_t * x4_direction_epsilon)
-        x4_x_t_1 = ((1. / x4_alpha_t) * x4_x_t)  - ((x4_sigma_t**2 /(x4_alpha_t * x4_sigma_dash_t)) * x4_x_out)  +  (x4_c_t * x4_x_epsilon)
+        x4_pos_t_1 = ((1. / float(x4_alpha_t)) * x4_pos_t)  - ((x4_var_dash_t/(x4_alpha_t * x4_sigma_dash_t)) * x4_pos_out)  +  (x4_c_t_injected * x4_pos_epsilon)
+        x4_direction_t_1 = ((1. / float(x4_alpha_t)) * x4_direction_t)  - ((x4_var_dash_t/(x4_alpha_t * x4_sigma_dash_t)) * x4_direction_out)  +  (x4_c_t * x4_direction_epsilon)
+        x4_x_t_1 = ((1. / x4_alpha_t) * x4_x_t)  - ((x4_var_dash_t/(x4_alpha_t * x4_sigma_dash_t)) * x4_x_out)  +  (x4_c_t * x4_x_epsilon)
     
-    
+        
         # resetting virtual nodes
         x1_pos_t_1[virtual_node_mask_x1] = x1_pos_t[virtual_node_mask_x1]
         x1_x_t_1[virtual_node_mask_x1] = x1_x_t[virtual_node_mask_x1]
