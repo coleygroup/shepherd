@@ -3,17 +3,6 @@ Contains the inference sampler for the original ShEPhERD model.
 This is kept for legibility since it is much easier to read and implement
 (i.e., consists of many copy pastes for each interaction profile).
 """
-import open3d 
-from shepherd.shepherd_score_utils.generate_point_cloud import (
-    get_atom_coords, 
-    get_atomic_vdw_radii, 
-    get_molecular_surface,
-    get_electrostatics,
-    get_electrostatics_given_point_charges,
-)
-from shepherd.shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
-from shepherd.shepherd_score_utils.conformer_generation import update_mol_coordinates
-
 import rdkit
 from rdkit.Chem import rdDetermineBonds
 
@@ -36,8 +25,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
 from shepherd.lightning_module import LightningModule
-from shepherd.datasets import HeteroDataset
-
 import importlib
 
 # harmonization functions
@@ -156,6 +143,7 @@ def inference_sample(
     pharm_types = np.zeros(5, dtype = int),
     pharm_pos = np.zeros((5,3)),
     pharm_direction = np.zeros((5,3)),
+    return_trajectories = False,
     verbose=False,
 ):
     """
@@ -218,6 +206,7 @@ def inference_sample(
         coordinates.
     pharm_direction : np.ndarray (<=N_x4,3) (default = np.zeros((5,3))) Pharmacophore directions as
         unit vectors.
+    return_trajectories : bool (default = False) Whether to return the trajectories.
     verbose : bool (default = False) Whether to print verbose output.
 
     Returns
@@ -242,6 +231,9 @@ def inference_sample(
                 'directions': np.ndarray (N_x4, 3) Unit vectors of pharmacophores.
             },
         }
+    If return_trajectories is True, then the output dictionaries will have an additional key
+    'trajectories', which is a list of dictionaries, each containing a list of dictionaries,
+    each containing the trajectories for each data modality: List[Dict['trajectories': List[Dict]]]
     """
     
     params = model_pl.params
@@ -644,18 +636,19 @@ def inference_sample(
     if verbose:
         pbar = tqdm(total= T + sum(harmonize_jumps) * int(harmonize), position=0, leave=True)
     
-    x1_t_x_list = []
-    x1_t_bond_edge_x_list = []
-    x1_t_pos_list = []
-    
-    x2_t_pos_list = []
-    
-    x3_t_x_list = []
-    x3_t_pos_list = []
-    
-    x4_t_x_list = []
-    x4_t_pos_list = []
-    x4_t_direction_list = []
+    if return_trajectories:
+        x1_t_x_list = []
+        x1_t_bond_edge_x_list = []
+        x1_t_pos_list = []
+        
+        x2_t_pos_list = []
+        
+        x3_t_x_list = []
+        x3_t_pos_list = []
+        
+        x4_t_x_list = []
+        x4_t_pos_list = []
+        x4_t_direction_list = []
     
     while t > 0:
         
@@ -1097,18 +1090,19 @@ def inference_sample(
         
         
         # saving intermediate states for visualization / tracking
-        x1_t_x_list.append(x1_x_t.detach().cpu().numpy())
-        x1_t_bond_edge_x_list.append(x1_bond_edge_x_t.detach().cpu().numpy())
-        x1_t_pos_list.append(x1_pos_t.detach().cpu().numpy())
-        
-        x2_t_pos_list.append(x2_pos_t.detach().cpu().numpy())
+        if return_trajectories:
+            x1_t_x_list.append(x1_x_t.detach().cpu().numpy())
+            x1_t_bond_edge_x_list.append(x1_bond_edge_x_t.detach().cpu().numpy())
+            x1_t_pos_list.append(x1_pos_t.detach().cpu().numpy())
             
-        x3_t_pos_list.append(x3_pos_t.detach().cpu().numpy())
-        x3_t_x_list.append(x3_x_t.detach().cpu().numpy())
-        
-        x4_t_pos_list.append(x4_pos_t.detach().cpu().numpy())
-        x4_t_direction_list.append(x4_direction_t.detach().cpu().numpy())
-        x4_t_x_list.append(x4_x_t.detach().cpu().numpy())
+            x2_t_pos_list.append(x2_pos_t.detach().cpu().numpy())
+                
+            x3_t_pos_list.append(x3_pos_t.detach().cpu().numpy())
+            x3_t_x_list.append(x3_x_t.detach().cpu().numpy())
+            
+            x4_t_pos_list.append(x4_pos_t.detach().cpu().numpy())
+            x4_t_direction_list.append(x4_direction_t.detach().cpu().numpy())
+            x4_t_x_list.append(x4_x_t.detach().cpu().numpy())
         
         
         # set next state and iterate
@@ -1194,6 +1188,25 @@ def inference_sample(
                 'directions': np.split(x4_direction_final, batch_size)[b],
             },
         }
+        if return_trajectories:
+            generated_dict['trajectories'] = {
+                'x1': {
+                    'atoms': [np.split(x1_x, batch_size)[b] for x1_x in x1_t_x_list],
+                    'positions': [np.split(x1_pos, batch_size)[b] for x1_pos in x1_t_pos_list],
+                },
+                'x2': {
+                    'positions': [np.split(x2_pos, batch_size)[b] for x2_pos in x2_t_pos_list],
+                },
+                'x3': {
+                    'charges': [np.split(x3_x, batch_size)[b] for x3_x in x3_t_x_list],
+                    'positions': [np.split(x3_pos, batch_size)[b] for x3_pos in x3_t_pos_list],
+                },
+                'x4': {
+                    'types': [np.split(x4_x, batch_size)[b] for x4_x in x4_t_x_list],
+                    'positions': [np.split(x4_pos, batch_size)[b] for x4_pos in x4_t_pos_list],
+                    'directions': [np.split(x4_direction, batch_size)[b] for x4_direction in x4_t_direction_list],
+                },
+            }
         generated_structures.append(generated_dict)
     
     return generated_structures
