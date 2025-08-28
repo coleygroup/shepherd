@@ -786,7 +786,26 @@ def generate(
         params, batch_size)
 
     if store_trajectories:
-        trajectories.append(generated_structures)
-        generated_structures['trajectories'] = trajectories
+        # Add trajectories to each batch element
+        for b in range(batch_size):
+            generated_structures[b]['trajectories'] = {
+                'x1': {
+                    'atoms': [traj[b]['x1']['atoms'] for traj in trajectories],
+                    'positions': [traj[b]['x1']['positions'] for traj in trajectories],
+                    'bonds': [traj[b]['x1']['bonds'] for traj in trajectories],
+                },
+                'x2': {
+                    'positions': [traj[b]['x2']['positions'] for traj in trajectories],
+                },
+                'x3': {
+                    'charges': [traj[b]['x3']['charges'] for traj in trajectories],
+                    'positions': [traj[b]['x3']['positions'] for traj in trajectories],
+                },
+                'x4': {
+                    'types': [traj[b]['x4']['types'] for traj in trajectories],
+                    'positions': [traj[b]['x4']['positions'] for traj in trajectories],
+                    'directions': [traj[b]['x4']['directions'] for traj in trajectories],
+                },
+            }
 
     return generated_structures

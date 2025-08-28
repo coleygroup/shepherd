@@ -862,9 +862,11 @@ def _extract_generated_samples(
     x4_direction_final[x4_direction_final_norm >= 0.5] = x4_direction_final[x4_direction_final_norm >= 0.5] / x4_direction_final_norm[x4_direction_final_norm >= 0.5][..., None]
 
 
-    x1_x_t[~virtual_node_mask_x1, 0] = -np.inf # this masks out remaining probability assigned to virtual nodes
+    # Work on a copy to avoid modifying the original tensor in-place
+    x1_x_t_copy = x1_x_t.clone()
+    x1_x_t_copy[~virtual_node_mask_x1, 0] = -np.inf # this masks out remaining probability assigned to virtual nodes
     x1_pos_final = x1_pos_t[~virtual_node_mask_x1].numpy()
-    x1_x_final = np.argmin(np.abs(x1_x_t[~virtual_node_mask_x1, 0:-len(params['dataset']['x1']['charge_types'])] - params['dataset']['x1']['scale_atom_features']), axis = -1)
+    x1_x_final = np.argmin(np.abs(x1_x_t_copy[~virtual_node_mask_x1, 0:-len(params['dataset']['x1']['charge_types'])] - params['dataset']['x1']['scale_atom_features']), axis = -1)
     x1_bond_edge_x_final = np.argmin(np.abs(x1_bond_edge_x_t - params['dataset']['x1']['scale_bond_features']), axis = -1)
 
     # need to remap the indices in x1_x_final to the list of atom types
