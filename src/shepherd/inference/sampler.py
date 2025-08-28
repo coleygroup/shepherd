@@ -21,7 +21,6 @@ import torch_scatter
 
 import pytorch_lightning as pl
 from shepherd.lightning_module import LightningModule
-from shepherd.datasets import HeteroDataset
 
 from shepherd.inference.initialization import (
     _initialize_x1_state,
@@ -64,6 +63,7 @@ def generate(
 
     inpaint_x1_pos: bool = False,
     inpaint_x1_x: bool = False,
+    inpaint_x1_bonds: bool = False,
 
     inpaint_x2_pos: bool = False,
     inpaint_x3_pos: bool = False,
@@ -87,15 +87,21 @@ def generate(
     add_noise_to_inpainted_x4_type: float = 0.0,
 
     # these are the inpainting targets
+    mol: Optional[Chem.Mol] = None,
+    atom_inds_to_inpaint: list[int] = [],
     atom_types: Optional[list[int]] = None,
     atom_pos: Optional[np.ndarray] = None,
+    exit_vector_atom_inds: list[int] = [],
     center_of_mass: np.ndarray = np.zeros(3),
     surface: np.ndarray = np.zeros((75,3)),
     electrostatics: np.ndarray = np.zeros(75),
     pharm_types: np.ndarray = np.zeros(5, dtype = int),
     pharm_pos: np.ndarray = np.zeros((5,3)),
     pharm_direction: np.ndarray = np.zeros((5,3)),
-    verbose: bool = True
+
+    # Other options for inference
+    verbose: bool = True,
+    store_trajectories: bool = False,
     ) -> list[dict]:
     """
     Runs inference of ShEPhERD to sample `batch_size` number of molecules.
@@ -126,13 +132,11 @@ def generate(
 
     inpaint_x1_pos : bool (default=False)
     inpaint_x1_x : bool (default=False)
-
+    inpaint_x1_bonds : bool (default=False)
     inpaint_x2_pos : bool (default=False) Toggle inpainting.
         Note that x2 is implicitly modeled via x3.
-
     inpaint_x3_pos : bool (default=False)
     inpaint_x3_x : bool (default=False)
-
     inpaint_x4_pos : bool (default=False)
     inpaint_x4_direction : bool (default=False)
     inpaint_x4_type : bool (default=False)
@@ -155,8 +159,30 @@ def generate(
     add_noise_to_inpainted_x4_type : float (default = 0.0)
     
     *these are the inpainting targets*
-    atom_types : Optional[list[int]] (default = None) Atom elements expected as a list of atomic numbers.
+    mol : Optional[Chem.Mol] (default = None)
+        Target molecule specifically for *atom*-inpainting.
+        If provided, `atom_inds_to_inpaint` *must* also be provided.
+        This is required for *bond*-inpainting.
+        If `atom_pos` and `atom_types` are also provided,
+        they will override the atom types and positions extracted from `mol`.
+    atom_inds_to_inpaint : list[int] (default = [])
+        Indices of atoms to inpaint.
+        This is required for *bond*-inpainting.
+    atom_types : Optional[list[int]] (default = None)
+        Atom elements expected as a list of atomic numbers.
+        If provided alongside `mol`, `atom_inds_to_inpaint`,
+        it will override the atom types extracted from `mol`.
     atom_pos : Optional[np.ndarray] (default = None) Atom positions as coordinates.
+        If provided alongside `mol`, `atom_inds_to_inpaint`,
+        it will override the atom positions extracted from `mol`.
+    exit_vector_atom_inds : list[int] (default = []) Indices of atoms to use as "exit vectors".
+        If empty and `mol` and `atom_inds_to_inpaint` are provided,
+        then the bonds between each of these atoms will be inpainted, but ignore other edges.
+        If provided, the inpainted atoms will be inpainted with bonds to all other atoms that are
+        diffused, (i.e., None bond-type for atoms that should not be bonded to the inpainted atoms)
+        However, the exit vector atom(s) will not inpaint any "None" bond-types to
+        non-inpainted atoms.
+        NOTE: Must be a subset of `atom_inds_to_inpaint`.
     center_of_mass : np.ndarray (3,) (default = np.zeros(3)) Must be supplied if target molecule is
         not already centered.
     surface : np.ndarray (75,3) (default = np.zeros((75,3)) Surface point coordinates.
@@ -193,22 +219,22 @@ def generate(
     generated_structures : list[dict]
         Output dictionary is structured as:
         'x1': {
-                'atoms': np.ndarray (N_x1,) of ints for atomic numbers.
-                'bonds': np.ndarray of bond types between every atom pair.
-                'positions': np.ndarray (N_x1, 3) Coordinates of atoms.
-            },
-            'x2': {
-                'positions': np.ndarray (75, 3) Coordinates of surface points.
-            },
-            'x3': {
-                'charges': np.ndarray (75, 3) ESP at surface points.
-                'positions': np.ndarray (75, 3) Coordinates of surface points.
-            },
-            'x4': {
-                'types': np.ndarray (N_x4,) of ints for pharmacophore types.
-                'positions': np.ndarray (N_x4, 3) Coordinates of pharmacophores.
-                'directions': np.ndarray (N_x4, 3) Unit vectors of pharmacophores.
-            },
+            'atoms': np.ndarray (N_x1,) of ints for atomic numbers.
+            'bonds': np.ndarray of bond types between every atom pair.
+            'positions': np.ndarray (N_x1, 3) Coordinates of atoms.
+        },
+        'x2': {
+            'positions': np.ndarray (75, 3) Coordinates of surface points.
+        },
+        'x3': {
+            'charges': np.ndarray (75, 3) ESP at surface points.
+            'positions': np.ndarray (75, 3) Coordinates of surface points.
+        },
+        'x4': {
+            'types': np.ndarray (N_x4,) of ints for pharmacophore types.
+            'positions': np.ndarray (N_x4, 3) Coordinates of pharmacophores.
+            'directions': np.ndarray (N_x4, 3) Unit vectors of pharmacophores.
+        },
         }
     """
     params = model_pl.params
@@ -225,6 +251,7 @@ def generate(
     if unconditional:
         inpaint_x1_pos = False
         inpaint_x1_x = False
+        inpaint_x1_bonds = False
         inpaint_x2_pos = False
         inpaint_x3_pos = False
         inpaint_x3_x = False
@@ -233,26 +260,84 @@ def generate(
         inpaint_x4_type = False
 
     do_partial_pharm_inpainting = False
-    assert len(pharm_direction) == len(pharm_pos) and len(pharm_pos) == len(pharm_types)
-    assert N_x4 >= len(pharm_pos)
+    assert len(pharm_direction) == len(pharm_pos) and len(pharm_pos) == len(pharm_types), \
+        f"pharm_direction, pharm_pos, and pharm_types must have the same length, got {len(pharm_direction)}, {len(pharm_pos)}, and {len(pharm_types)}"
+    assert N_x4 >= len(pharm_pos), \
+        f"N_x4 must be >= number of pharmacophores, got {N_x4} and {len(pharm_pos)}"
     if N_x4 > len(pharm_pos):
         do_partial_pharm_inpainting = True
+
+    # bond types
+    BOND_TYPES = params['dataset']['x1']['bond_types']
+    BOND_TYPES_DICT = {b:BOND_TYPES.index(b) for b in BOND_TYPES}
+    MAX_BOND_TYPES = len(BOND_TYPES_DICT)
+
+    bond_inpaint_mask = None
+    inpaint_x1_bond_edge_x = None
+    if mol is not None and atom_inds_to_inpaint:
+        if inpaint_x1_pos and atom_pos is None:
+            atom_pos = mol.GetConformer().GetPositions()[np.array(atom_inds_to_inpaint)]
+        if inpaint_x1_x and atom_types is None:
+            atom_types = list(np.array([mol.GetAtomWithIdx(idx).GetAtomicNum() for idx in atom_inds_to_inpaint]))
+
+        if inpaint_x1_bonds:
+            _bond_adj = np.triu(1-np.diag(np.ones(N_x1, dtype = int)))
+            _bond_edge_index = np.stack(_bond_adj.nonzero(), axis = 0)
+            # _bond_mask = np.isin(_bond_edge_index, atom_inds_to_inpaint)
+            if exit_vector_atom_inds:
+                # This will inpaint any "bond" between atoms-to-inpaint with all other atoms,
+                # but does not specify bonds with exit vector atoms and non-inpainted atoms.
+                assert all(ind in atom_inds_to_inpaint for ind in exit_vector_atom_inds), \
+                    "exit_vector_atom_inds must be a subset of atom_inds_to_inpaint"
+                _index_inpaint_no_exit_vector = np.array([atom_inds_to_inpaint.index(idx) for idx in atom_inds_to_inpaint
+                                    if idx not in exit_vector_atom_inds])
+                _atom_mask_no_exit_vector = np.isin(_bond_edge_index,
+                    np.arange(len(atom_inds_to_inpaint))[_index_inpaint_no_exit_vector]
+                )
+                bond_inpaint_inds = np.where(_atom_mask_no_exit_vector.any(axis=0))[0]
+                bond_inpaint_mask = np.where(_atom_mask_no_exit_vector.any(axis=0), True, False)
+            else:
+                _atom_mask = np.isin(_bond_edge_index, np.arange(len(atom_inds_to_inpaint)))
+                bond_inpaint_inds = np.where(_atom_mask.all(axis=0))[0]
+                bond_inpaint_mask = np.where(_atom_mask.all(axis=0), True, False)
+
+            bond_types = []
+            for idx_1, idx_2 in _bond_edge_index[:,bond_inpaint_mask].T:
+                if int(idx_1) > len(atom_inds_to_inpaint) - 1 or int(idx_2) > len(atom_inds_to_inpaint) - 1:
+                    bond_types.append(BOND_TYPES_DICT[None])
+                    continue
+                idx_1_mapped = atom_inds_to_inpaint[int(idx_1)]
+                idx_2_mapped = atom_inds_to_inpaint[int(idx_2)]
+                bond = mol.GetBondBetweenAtoms(idx_1_mapped, idx_2_mapped)  
+                if bond is None:
+                    bond_types.append(BOND_TYPES_DICT[None]) # non-bonded edge type; == 0
+                else:
+                    bond_type = BOND_TYPES_DICT[str(bond.GetBondType())]
+                    bond_types.append(bond_type)
+
+            # one-hot encoding of bond types
+            inpaint_x1_bond_edge_x = np.zeros((_bond_edge_index.shape[1], MAX_BOND_TYPES))
+            # just select the bonds that we care about
+            inpaint_x1_bond_edge_x[bond_inpaint_inds, bond_types] = 1
+            inpaint_x1_bond_edge_x = inpaint_x1_bond_edge_x * params['dataset']['x1']['scale_bond_features']
+            inpaint_x1_bond_edge_x = torch.from_numpy(inpaint_x1_bond_edge_x.copy()).float()
+            bond_inpaint_mask = torch.from_numpy(bond_inpaint_mask.copy()).long()
 
     do_partial_atom_inpainting = False
     if atom_pos is not None:
         try:
             assert N_x1 >= len(atom_pos)
         except AssertionError:
-            raise ValueError(f"Number of atoms in the target molecule ({len(atom_pos)}) must be less than or equal to the number of atoms in the model ({N_x1}).")
+            raise ValueError(
+                f"Number of atoms in the target molecule ({len(atom_pos)}) must be less than or equal to the number of atoms in the model ({N_x1}).")
         if N_x1 > len(atom_pos):
             do_partial_atom_inpainting = True
         else:
             do_partial_atom_inpainting = False
+
     if atom_types is not None:
-        try:
-            assert len(atom_types) == len(atom_pos)
-        except AssertionError:
-            raise ValueError(f"Number of atom types in the target molecule ({len(atom_types)}) must be equal to the number of atom positions to inpaint ({len(atom_pos)}).")
+        assert len(atom_types) == len(atom_pos), \
+            f"Number of atom types in the target molecule ({len(atom_types)}) must be equal to the number of atom positions to inpaint ({len(atom_pos)})."
         ptable = Chem.GetPeriodicTable()
         # convert atomic numbers to symbols
         atomic_number_to_symbol = {
@@ -265,7 +350,7 @@ def generate(
         atom_pos = np.zeros((N_x1, 3))
     if atom_types is None:
         # initialize dummy atom types
-        atom_types = np.zeros(N_x1, dtype = int)
+        atom_types = ['C'] * N_x1
 
     # centering about provided center of mass (of x1)
     surface = surface - center_of_mass
@@ -283,7 +368,6 @@ def generate(
     pharm_pos = np.concatenate([np.array([[0.0, 0.0, 0.0]]), pharm_pos], axis = 0) # virtual node
     pharm_direction = np.concatenate([np.array([[0.0, 0.0, 0.0]]), pharm_direction], axis = 0) # virtual node
     
-    # TODO EXPECT ATOMIC SYMBOLS: ADJUST INPUT
     atom_pos = np.concatenate([np.array([[0.0, 0.0, 0.0]]), atom_pos], axis = 0)
     # atom types are converted to one-hot encoding
     atom_type_map = {atomic_symbol: i for i, atomic_symbol in enumerate(params['dataset']['x1']['atom_types'])}
@@ -334,6 +418,7 @@ def generate(
 
     x1_pos_inpainting_trajectory = None
     x1_x_inpainting_trajectory = None
+    x1_bond_edge_x_inpainting_trajectory = None
     x2_pos_inpainting_trajectory = None
     x3_pos_inpainting_trajectory = None
     x3_x_inpainting_trajectory = None
@@ -365,6 +450,16 @@ def generate(
             mask = target_inpaint_x1_mask,
             deterministic = False,
             batch_size = batch_size,
+        )
+
+    if inpaint_x1_bonds:
+        # just get the trajectory for the bonds that we care about
+        # shape is (N_bonds_inpaint, MAX_BOND_TYPES) -> no batching here.
+        x1_bond_edge_x_inpainting_trajectory = forward_trajectory(
+            x = inpaint_x1_bond_edge_x[bond_inpaint_mask],
+            ts = params['noise_schedules']['x1']['ts'],
+            alpha_ts = params['noise_schedules']['x1']['alpha_ts'],
+            sigma_ts = params['noise_schedules']['x1']['sigma_ts'],
         )
 
     if inpaint_x2_pos:
@@ -526,6 +621,11 @@ def generate(
             else:
                 x1_x_t = x1_x_inpainting_trajectory[x1_t]
 
+        if inpaint_x1_bonds:
+            x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(batch_size, -1, MAX_BOND_TYPES)
+            x1_bond_edge_x_t[:, bond_inpaint_mask] = x1_bond_edge_x_inpainting_trajectory[x1_t]
+            x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(-1, MAX_BOND_TYPES)
+
     if (x2_t > stop_inpainting_at_time_x2):
         if inpaint_x2_pos:
             x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)
@@ -580,6 +680,7 @@ def generate(
         inpainting_dict = {
             'inpaint_x1_pos': inpaint_x1_pos,
             'inpaint_x1_x': inpaint_x1_x,
+            'inpaint_x1_bonds': inpaint_x1_bonds,
             'inpaint_x2_pos': inpaint_x2_pos,
             'inpaint_x3_pos': inpaint_x3_pos,
             'inpaint_x3_x': inpaint_x3_x,
@@ -588,6 +689,8 @@ def generate(
             'inpaint_x4_type': inpaint_x4_type,
             'x1_pos_inpainting_trajectory': x1_pos_inpainting_trajectory,
             'x1_x_inpainting_trajectory': x1_x_inpainting_trajectory,
+            'x1_bond_edge_x_inpainting_trajectory': x1_bond_edge_x_inpainting_trajectory,
+            'bond_inpaint_mask': bond_inpaint_mask,
             'x2_pos_inpainting_trajectory': x2_pos_inpainting_trajectory,
             'x3_pos_inpainting_trajectory': x3_pos_inpainting_trajectory,
             'x3_x_inpainting_trajectory': x3_x_inpainting_trajectory,
@@ -629,6 +732,14 @@ def generate(
         pbar = None
 
     current_time_idx = 0
+    if store_trajectories:
+        trajectories = [_extract_generated_samples(
+            x1_x_t, x1_pos_t, x1_bond_edge_x_t, virtual_node_mask_x1,
+            x2_pos_t, virtual_node_mask_x2,
+            x3_pos_t, x3_x_t, virtual_node_mask_x3,
+            x4_pos_t, x4_direction_t, x4_x_t, virtual_node_mask_x4,
+            params, batch_size
+        )]
     while current_time_idx < len(time_steps) - 1:
         current_time_idx, next_state = inference_step(
             current_time_idx=current_time_idx,
@@ -653,7 +764,14 @@ def generate(
         x4_direction_t = next_state['x4_direction_t_1']
         x4_x_t = next_state['x4_x_t_1']
 
-        # TODO store trajectories
+        if store_trajectories and current_time_idx < len(time_steps) - 1: # don't store the final state
+            trajectories.append(_extract_generated_samples(
+                x1_x_t, x1_pos_t, x1_bond_edge_x_t, virtual_node_mask_x1,
+                x2_pos_t, virtual_node_mask_x2,
+                x3_pos_t, x3_x_t, virtual_node_mask_x3,
+                x4_pos_t, x4_direction_t, x4_x_t, virtual_node_mask_x4,
+                params, batch_size
+            ))
 
     if pbar is not None:
         pbar.close()
@@ -666,5 +784,9 @@ def generate(
         x3_pos_t, x3_x_t, virtual_node_mask_x3,
         x4_pos_t, x4_direction_t, x4_x_t, virtual_node_mask_x4,
         params, batch_size)
+
+    if store_trajectories:
+        trajectories.append(generated_structures)
+        generated_structures['trajectories'] = trajectories
 
     return generated_structures
