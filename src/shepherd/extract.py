@@ -6,6 +6,7 @@ This module provides helper functions for working with ShEPhERD's inference outp
 
 import logging
 from copy import deepcopy
+import numpy as np
 
 from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds
@@ -132,6 +133,40 @@ def create_rdkit_molecule(sample):
     except Exception as e:
         logging.warning(f"Error creating molecule: {e}")
         return None
+    
+
+def remove_overlaps(generated_sample: dict,
+                    inpainted_atom_positions: np.ndarray,
+                    cutoff: float = 0.5,
+                    verbose: bool = False) -> dict:
+    """
+    Remove atoms that overlap with inpainted atoms.
+    Assumes `inpainted_atom_positions` are the first `num_inpainted_atoms` atoms in `generated_sample['x1']['positions']`.
+
+    Args:
+        generated_sample (dict): ShEPhERD output dictionary with x1 containing atoms and positions.
+        inpainted_atom_positions (np.ndarray) : Array of inpainted atom positions. (num_inpainted_atoms, 3)
+        cutoff (float): Cutoff distance (RMSD) for overlap. (default: 0.5)
+        verbose (bool): Whether to print verbose output. (default: False)
+
+    Returns:
+        deepcopy(generated_sample):
+        ShEPhERD output dictionary where atoms that overlap with inpainted atoms are removed.
+        Note that this does not alter the bond information.
+    """
+    num_total_atoms = len(generated_sample['x1']['positions'])
+    num_inpainted_atoms = len(inpainted_atom_positions)
+    diffused_atom_pos = generated_sample['x1']['positions'][num_inpainted_atoms:]
+    pairwise_diff = diffused_atom_pos[:, None] - inpainted_atom_positions[None, :]
+    rmse_atoms = np.sqrt(np.mean(np.square(pairwise_diff), axis=2))
+    overlap_inds = np.where(np.any(np.isclose(rmse_atoms, np.zeros(rmse_atoms.shape), atol=cutoff), axis=1))[0]
+    if verbose:
+        print(f'Removing inds: {overlap_inds + num_inpainted_atoms}')
+    inds_to_keep = np.array([i for i in range(num_total_atoms) if i not in overlap_inds + num_inpainted_atoms])
+    out = deepcopy(generated_sample)
+    out['x1']['positions'] = generated_sample['x1']['positions'][inds_to_keep]
+    out['x1']['atoms'] = generated_sample['x1']['atoms'][inds_to_keep]
+    return out
 
 
 def remove_side_groups_with_geometry(mol: Chem.Mol, atoms_to_remove: list[int]) -> Chem.Mol:
