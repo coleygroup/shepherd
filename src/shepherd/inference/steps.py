@@ -193,7 +193,7 @@ def _perform_reverse_denoising_step(
         x4_c_t_injected = x4_c_t + inject_noise_scale
 
     # DDPM update
-    # xt-1 = (xt - (1-alpha_t)/sqrt(1-alpha_dash_t) * eps_theta) / sqrt(alpha_t) + sigma_t * eps
+    # xt-1 = (xt - (1-alpha_t)/sqrt(1-alpha_dash_t) * eps_theta) / alpha_t + sigma_t * eps
     x1_pos_t_1 = ((1. / x1_alpha_t) * x1_pos_t) - ((x1_var_dash_t / (x1_alpha_t * x1_sigma_dash_t + 1e-9)) * x1_pos_out) + (x1_c_t_injected * x1_pos_epsilon)
     x1_x_t_1 = ((1. / x1_alpha_t) * x1_x_t) - ((x1_var_dash_t / (x1_alpha_t * x1_sigma_dash_t + 1e-9)) * x1_x_out) + (x1_c_t * x1_x_epsilon)
     x1_bond_edge_x_t_1 = ((1. / x1_alpha_t) * x1_bond_edge_x_t) - ((x1_var_dash_t / (x1_alpha_t * x1_sigma_dash_t + 1e-9)) * x1_bond_edge_x_out) + (x1_c_t * x1_bond_edge_x_epsilon)
@@ -392,6 +392,7 @@ def _inference_step(
     if inpainting_dict is None: # unconditional
         inpaint_x1_pos = False
         inpaint_x1_x = False
+        inpaint_x1_bonds = False
         inpaint_x2_pos = False
         inpaint_x3_pos = False
         inpaint_x3_x = False
@@ -402,6 +403,7 @@ def _inference_step(
     if inpainting_dict is not None: # conditional
         inpaint_x1_pos = inpainting_dict['inpaint_x1_pos']
         inpaint_x1_x = inpainting_dict['inpaint_x1_x']
+        inpaint_x1_bonds = inpainting_dict['inpaint_x1_bonds']
         inpaint_x2_pos = inpainting_dict['inpaint_x2_pos']
         inpaint_x3_pos = inpainting_dict['inpaint_x3_pos']
         inpaint_x3_x = inpainting_dict['inpaint_x3_x']
@@ -415,7 +417,10 @@ def _inference_step(
 
         if inpaint_x1_x:
             x1_x_inpainting_trajectory = inpainting_dict['x1_x_inpainting_trajectory']
-            stop_inpainting_at_time_x1 = inpainting_dict['stop_inpainting_at_time_x1']
+
+        if inpaint_x1_bonds:
+            x1_bond_edge_x_inpainting_trajectory = inpainting_dict['x1_bond_edge_x_inpainting_trajectory']
+            bond_inpaint_mask = inpainting_dict['bond_inpaint_mask']
 
         if inpaint_x2_pos:
             x2_pos_inpainting_trajectory = inpainting_dict['x2_pos_inpainting_trajectory']
@@ -540,6 +545,12 @@ def _inference_step(
                 x1_x_t = x1_x_t_reshaped.reshape(-1, num_atom_types)
             else:
                 x1_x_t = x1_x_inpainting_trajectory[x1_t]
+        
+        if inpaint_x1_bonds:
+            max_bond_types = x1_bond_edge_x_t.shape[1]
+            x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(batch_size, -1, max_bond_types)
+            x1_bond_edge_x_t[:, bond_inpaint_mask] = x1_bond_edge_x_inpainting_trajectory[x1_t]
+            x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(-1, max_bond_types)
 
     if (x2_t > stop_inpainting_at_time_x2) and inpaint_x2_pos:
         x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)
