@@ -193,7 +193,6 @@ def _perform_reverse_denoising_step(
         x4_c_t_injected = x4_c_t + inject_noise_scale
 
     # DDPM update
-    # xt-1 = (xt - (1-alpha_t)/sqrt(1-alpha_dash_t) * eps_theta) / alpha_t + sigma_t * eps
     x1_pos_t_1 = ((1. / x1_alpha_t) * x1_pos_t) - ((x1_var_dash_t / (x1_alpha_t * x1_sigma_dash_t + 1e-9)) * x1_pos_out) + (x1_c_t_injected * x1_pos_epsilon)
     x1_x_t_1 = ((1. / x1_alpha_t) * x1_x_t) - ((x1_var_dash_t / (x1_alpha_t * x1_sigma_dash_t + 1e-9)) * x1_x_out) + (x1_c_t * x1_x_epsilon)
     x1_bond_edge_x_t_1 = ((1. / x1_alpha_t) * x1_bond_edge_x_t) - ((x1_var_dash_t / (x1_alpha_t * x1_sigma_dash_t + 1e-9)) * x1_bond_edge_x_out) + (x1_c_t * x1_bond_edge_x_epsilon)
@@ -384,7 +383,9 @@ def _inference_step(
     x3_t = t
     x4_t = t
 
-    stop_inpainting_at_time_x1 = 0.0
+    stop_inpainting_at_time_x1_pos = 0.0
+    stop_inpainting_at_time_x1_x = 0.0
+    stop_inpainting_at_time_x1_bonds = 0.0
     stop_inpainting_at_time_x2 = 0.0
     stop_inpainting_at_time_x3 = 0.0
     stop_inpainting_at_time_x4 = 0.0
@@ -413,12 +414,14 @@ def _inference_step(
 
         if inpaint_x1_pos:
             x1_pos_inpainting_trajectory = inpainting_dict['x1_pos_inpainting_trajectory']
-            stop_inpainting_at_time_x1 = inpainting_dict['stop_inpainting_at_time_x1']
+            stop_inpainting_at_time_x1_pos = inpainting_dict['stop_inpainting_at_time_x1_pos']
 
         if inpaint_x1_x:
             x1_x_inpainting_trajectory = inpainting_dict['x1_x_inpainting_trajectory']
+            stop_inpainting_at_time_x1_x = inpainting_dict['stop_inpainting_at_time_x1_x']
 
         if inpaint_x1_bonds:
+            stop_inpainting_at_time_x1_bonds = inpainting_dict['stop_inpainting_at_time_x1_bonds']
             x1_bond_edge_x_inpainting_trajectory = inpainting_dict['x1_bond_edge_x_inpainting_trajectory']
             bond_inpaint_mask = inpainting_dict['bond_inpaint_mask']
 
@@ -518,39 +521,38 @@ def _inference_step(
             # continue the loop from the *next* scheduled step after the original t
 
     # inpainting logic
-    if (x1_t > stop_inpainting_at_time_x1):
+    if (x1_t > stop_inpainting_at_time_x1_pos) and inpaint_x1_pos:
         num_atom_types = len(params['dataset']['x1']['atom_types']) + len(params['dataset']['x1']['charge_types'])
-        if inpaint_x1_pos:
-            if do_partial_atom_inpainting:
-                x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].reshape(batch_size, -1, 3)
-                x1_pos_t_reshaped = x1_pos_t.reshape(batch_size, -1, 3)
-                if inpainted_atom_mask is not None:
-                    x1_pos_t_reshaped[:, inpainted_atom_mask] = x1_pos_t_inpaint[:, inpainted_atom_mask]
-                else:
-                    num_scaffold_atoms = x1_pos_t_inpaint.shape[1]
-                    x1_pos_t_reshaped[:, :num_scaffold_atoms] = x1_pos_t_inpaint
-                x1_pos_t = x1_pos_t_reshaped.reshape(-1, 3)
+        if do_partial_atom_inpainting:
+            x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].reshape(batch_size, -1, 3)
+            x1_pos_t_reshaped = x1_pos_t.reshape(batch_size, -1, 3)
+            if inpainted_atom_mask is not None:
+                x1_pos_t_reshaped[:, inpainted_atom_mask] = x1_pos_t_inpaint[:, inpainted_atom_mask]
             else:
-                x1_pos_t = x1_pos_inpainting_trajectory[x1_t]
+                num_scaffold_atoms = x1_pos_t_inpaint.shape[1]
+                x1_pos_t_reshaped[:, :num_scaffold_atoms] = x1_pos_t_inpaint
+            x1_pos_t = x1_pos_t_reshaped.reshape(-1, 3)
+        else:
+            x1_pos_t = x1_pos_inpainting_trajectory[x1_t]
 
-        if inpaint_x1_x:
-            if do_partial_atom_inpainting:
-                x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].reshape(batch_size, -1, num_atom_types)
-                x1_x_t_reshaped = x1_x_t.reshape(batch_size, -1, num_atom_types)
-                if inpainted_atom_mask is not None:
-                    x1_x_t_reshaped[:, inpainted_atom_mask] = x1_x_t_inpaint[:, inpainted_atom_mask]
-                else:
-                    num_scaffold_atoms = x1_x_t_inpaint.shape[1]
-                    x1_x_t_reshaped[:, :num_scaffold_atoms] = x1_x_t_inpaint
-                x1_x_t = x1_x_t_reshaped.reshape(-1, num_atom_types)
+    if (x1_t > stop_inpainting_at_time_x1_x) and inpaint_x1_x:
+        if do_partial_atom_inpainting:
+            x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].reshape(batch_size, -1, num_atom_types)
+            x1_x_t_reshaped = x1_x_t.reshape(batch_size, -1, num_atom_types)
+            if inpainted_atom_mask is not None:
+                x1_x_t_reshaped[:, inpainted_atom_mask] = x1_x_t_inpaint[:, inpainted_atom_mask]
             else:
-                x1_x_t = x1_x_inpainting_trajectory[x1_t]
-        
-        if inpaint_x1_bonds:
-            max_bond_types = x1_bond_edge_x_t.shape[1]
-            x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(batch_size, -1, max_bond_types)
-            x1_bond_edge_x_t[:, bond_inpaint_mask] = x1_bond_edge_x_inpainting_trajectory[x1_t]
-            x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(-1, max_bond_types)
+                num_scaffold_atoms = x1_x_t_inpaint.shape[1]
+                x1_x_t_reshaped[:, :num_scaffold_atoms] = x1_x_t_inpaint
+            x1_x_t = x1_x_t_reshaped.reshape(-1, num_atom_types)
+        else:
+            x1_x_t = x1_x_inpainting_trajectory[x1_t]
+
+    if (x1_t > stop_inpainting_at_time_x1_bonds) and inpaint_x1_bonds:
+        max_bond_types = x1_bond_edge_x_t.shape[1]
+        x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(batch_size, -1, max_bond_types)
+        x1_bond_edge_x_t[:, bond_inpaint_mask] = x1_bond_edge_x_inpainting_trajectory[x1_t]
+        x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(-1, max_bond_types)
 
     if (x2_t > stop_inpainting_at_time_x2) and inpaint_x2_pos:
         x2_pos_t = torch.cat([x2_pos_inpainting_trajectory[x2_t] for _ in range(batch_size)], dim = 0)
@@ -648,7 +650,7 @@ def _inference_step(
     x1_pos_out = output_dict['x1']['decoder']['denoiser']['pos_out'].detach().cpu()
 
     # Correct the COM during inpainting
-    if inpaint_x1_pos and do_partial_atom_inpainting and (x1_t > stop_inpainting_at_time_x1):
+    if inpaint_x1_pos and do_partial_atom_inpainting and (x1_t > stop_inpainting_at_time_x1_pos):
         x1_alpha_dash_t = x1_params_current['alpha_dash_t']
         x1_sigma_dash_t = x1_params_current['sigma_dash_t']
 
@@ -846,26 +848,25 @@ def _extract_generated_samples(
                     positions: torch.Tensor
                     directions: torch.Tensor
     """
-    x2_pos_final = x2_pos_t[~virtual_node_mask_x2].numpy()
+    x2_pos_final = x2_pos_t[~virtual_node_mask_x2].numpy().copy()
 
-    x3_pos_final = x3_pos_t[~virtual_node_mask_x3].numpy()
-    x3_x_final = x3_x_t[~virtual_node_mask_x3].numpy()
+    x3_pos_final = x3_pos_t[~virtual_node_mask_x3].numpy().copy()
+    x3_x_final = x3_x_t[~virtual_node_mask_x3].numpy().copy()
     x3_x_final = x3_x_final / params['dataset']['x3']['scale_node_features']
 
     x4_x_final = np.argmin(np.abs(x4_x_t[~virtual_node_mask_x4] - params['dataset']['x4']['scale_node_features']), axis = -1)
     x4_x_final = x4_x_final - 1 # readjusting for the previous addition of the virtual node pharmacophore type
-    x4_pos_final = x4_pos_t[~virtual_node_mask_x4].numpy()
+    x4_pos_final = x4_pos_t[~virtual_node_mask_x4].numpy().copy()
 
-    x4_direction_final = x4_direction_t[~virtual_node_mask_x4].numpy() / params['dataset']['x4']['scale_vector_features']
+    x4_direction_final = x4_direction_t[~virtual_node_mask_x4].numpy().copy() / params['dataset']['x4']['scale_vector_features']
     x4_direction_final_norm = np.linalg.norm(x4_direction_final, axis = 1)
     x4_direction_final[x4_direction_final_norm < 0.5] = 0.0
     x4_direction_final[x4_direction_final_norm >= 0.5] = x4_direction_final[x4_direction_final_norm >= 0.5] / x4_direction_final_norm[x4_direction_final_norm >= 0.5][..., None]
 
-
     # Work on a copy to avoid modifying the original tensor in-place
     x1_x_t_copy = x1_x_t.clone()
     x1_x_t_copy[~virtual_node_mask_x1, 0] = -np.inf # this masks out remaining probability assigned to virtual nodes
-    x1_pos_final = x1_pos_t[~virtual_node_mask_x1].numpy()
+    x1_pos_final = x1_pos_t[~virtual_node_mask_x1].numpy().copy()
     x1_x_final = np.argmin(np.abs(x1_x_t_copy[~virtual_node_mask_x1, 0:-len(params['dataset']['x1']['charge_types'])] - params['dataset']['x1']['scale_atom_features']), axis = -1)
     x1_bond_edge_x_final = np.argmin(np.abs(x1_bond_edge_x_t - params['dataset']['x1']['scale_bond_features']), axis = -1)
 
