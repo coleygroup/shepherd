@@ -1,3 +1,19 @@
+# August 29, 2025 (v0.2.2)
+### Refresh inference code
+- Refactored ShEPhERD inference code to be more modular (backwards compatible).
+    - The original inference code can still be imported: `from shepherd.inference import inference_sample`
+    - New inference functions can be imported with:
+        - `from shepherd.inference import generate`
+        - `from shepherd.inference import generate_from_intermediate_time`
+- Inference now supports atom and bond inpainting
+    - `generate` is updated to allow atom inpainting from t=T
+    - `generate_from_intermediate_time` is specialized to allow atom inpainting from an intermediate time (T ≤ t < 0)
+- Inference can store full diffusion trajectories by setting `return_trajectories=True` during sampling.
+- `shepherd.extract`
+    - Added `remove_side_groups_with_geometry`
+    - Added `remove_overlaps` to quickly filter sampled molecules that use atom-inpainting.
+
+
 # June 5, 2025 (v0.2.0)
 ### Refactoring and upgrades for PyTorch >= v2.5.1
 
