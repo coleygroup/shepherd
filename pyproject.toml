@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shepherd"
-version = "0.2.0"
+version = "0.2.2"
 description = "ShEPhERD: Diffusing Shape, Electrostatics, and Pharmacophores for Drug Design"
 authors = [
     {name = "Keir Adams"},
