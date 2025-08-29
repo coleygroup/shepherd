@@ -882,3 +882,640 @@ def generate(
         )
 
     return generated_structures
+
+
+def generate_from_intermediate_time(
+    model_pl: LightningModule,
+    batch_size: int,
+
+    start_time: float,
+
+    N_x1: int,
+    N_x4: int,
+
+    # these are the inpainting targets
+    mol: Chem.Mol,
+    atom_inds_to_inpaint: np.ndarray | list[int],
+    exit_vector_atom_inds: list[int] = [],
+    new_atom_placement_region: Optional[np.ndarray] = None,
+    new_atom_placement_radius: float = 1.5,
+    new_atom_types: list[str] = ['C', 'O', 'N', 'F', 'H'],
+    new_atom_type_weights: list[float] = [0.3, 0.2, 0.2, 0.1, 0.2],
+
+    center_of_mass: np.ndarray = np.zeros(3),
+    surface: np.ndarray = np.zeros((75,3)),
+    electrostatics: np.ndarray = np.zeros(75),
+    pharm_types: np.ndarray = np.zeros(5, dtype = int),
+    pharm_pos: np.ndarray = np.zeros((5,3)),
+    pharm_direction: np.ndarray = np.zeros((5,3)),
+
+    denoising_noise_scale: float = 1.0,
+
+    inject_noise_at_ts: list[int] = [],
+    inject_noise_scales: list[int] = [],
+
+    # inpainting options
+    inpaint_x1_bonds: bool = False,
+    stop_inpainting_at_time_x1_pos: float = 0.0,
+    stop_inpainting_at_time_x1_x: float = 0.0,
+    stop_inpainting_at_time_x1_bonds: float = 0.0,
+
+    verbose: bool = True,
+    store_trajectories: bool = False,
+    store_trajectories_x0: bool = False,
+    ) -> list[dict]:
+    """
+    Runs inpainting-based inference of ShEPhERD starting from an intermediate time step.
+    This function assumes that modalities x1, x3, and x4 are being inpainted.
+
+    The key features are:
+    - Starts diffusion from a specified intermediate time `start_time`.
+    - Uses a full molecule for generating inpainting trajectories.
+    - Allows for partial inpainting of atoms via `atom_inds_to_inpaint`.
+    - The number of atoms to generate (`N_x1`) can be different from the number of
+      atoms in the provided molecule, allowing for addition of atoms (N_x1 > N_atoms).
+
+    Arguments
+    ---------
+    model_pl: LightningModule
+    batch_size: int
+        Number of molecules to sample.
+    start_time: float [0, 1]
+        The time to start diffusion from. 0 is t=0 (data distribution) and 1 is t=T (prior).
+    N_x1: int
+        The number of atoms to diffuse. Must be >= the number of atoms in the `mol`.
+    N_x4: int
+        The number of pharmacophores to diffuse.
+
+    mol: Chem.Mol
+        The molecule to inpaint. Requires a conformer.
+    atom_inds_to_inpaint: np.ndarray | list[int]
+        The indices of the atoms to inpaint.
+    new_atom_placement_region: Optional[np.ndarray] = None
+        Shape (3,). Position around which to place new atoms. Image it to be a cluster center.
+        If None, new atoms are sampled from a Gaussian distribution.
+    new_atom_placement_radius: float [default: 1.5]
+        The radius of the sphere to place new atoms in.
+        Only used if new_atom_placement_region is not None.
+    new_atom_types: list[str] [default: ['C', 'O', 'N', 'F', 'H']]
+        The types of new atoms to forward noise. Does not guarantee that these atoms will be added.
+    new_atom_type_weights: list[float] [default: [0.3, 0.2, 0.2, 0.1, 0.2]]
+        The weights of the new atom types.
+
+    center_of_mass: np.ndarray (3,) [default: np.zeros(3)]
+        The center of mass of the molecule.
+    surface: np.ndarray (75, 3) [default: np.zeros((75, 3))]
+        The surface of the molecule.
+    electrostatics: np.ndarray (75,) [default: np.zeros(75)]
+        The electrostatics of the molecule.
+    pharm_types: np.ndarray (5,) [default: np.zeros(5, dtype = int)]
+        The types of pharmacophores.
+    pharm_pos: np.ndarray (5, 3) [default: np.zeros((5, 3))]
+        The positions of the pharmacophores.
+    pharm_direction: np.ndarray (5, 3) [default: np.zeros((5, 3))]
+        The directions of the pharmacophores.
+    denoising_noise_scale: float [default: 1.0]
+        The scale of the denoising noise.
+    inject_noise_at_ts: list[int] [default: []]
+        The times to inject noise.
+    inject_noise_scales: list[int] [default: []]
+        The scales of the noise to inject.
+    
+    inpaint_x1_bonds: bool [default: False]
+        Whether to inpaint bonds between atoms specified in atom_inds_to_inpaint.
+    stop_inpainting_at_time_x1_pos: float [default: 0.0]
+        Time step to stop inpainting atom positions.
+    stop_inpainting_at_time_x1_x: float [default: 0.0]
+        Time step to stop inpainting atom types.
+    stop_inpainting_at_time_x1_bonds: float [default: 0.0]
+        Time step to stop inpainting bond types.
+    
+    verbose: bool [default: True]
+        Whether to print progress.
+    store_trajectories: bool [default: False]
+        Whether to store the trajectories.
+    store_trajectories_x0: bool [default: False]
+        Whether to store the trajectories of the initial state.
+
+    Returns
+    -------
+    generated_structures : list[dict]
+        Output dictionary is structured as:
+        'x1': {
+            'atoms': np.ndarray (N_x1,) of ints for atomic numbers.
+            'bonds': np.ndarray of bond types between every atom pair.
+            'positions': np.ndarray (N_x1, 3) Coordinates of atoms.
+        },
+        'x2': {
+            'positions': np.ndarray (75, 3) Coordinates of surface points.
+        },
+        'x3': {
+            'charges': np.ndarray (75, 3) ESP at surface points.
+            'positions': np.ndarray (75, 3) Coordinates of surface points.
+        },
+        'x4': {
+            'types': np.ndarray (N_x4,) of ints for pharmacophore types.
+            'positions': np.ndarray (N_x4, 3) Coordinates of pharmacophores.
+            'directions': np.ndarray (N_x4, 3) Unit vectors of pharmacophores.
+        },
+        }
+    """
+    params = model_pl.params
+
+    T = params['noise_schedules']['x1']['ts'].max()
+    time_steps = np.arange(T, 0, -1)
+
+    N_x2 = params['dataset']['x2']['num_points']
+    N_x3 = params['dataset']['x3']['num_points']
+
+    ####### Defining inpainting targets ########
+    # In this function, we are always inpainting.
+    inpaint_x1_pos = True
+    inpaint_x1_x = True
+    inpaint_x2_pos = True # x2 is tied to x3
+    inpaint_x3_pos = True
+    inpaint_x3_x = True
+    inpaint_x4_pos = True
+    inpaint_x4_direction = True
+    inpaint_x4_type = True
+
+    atom_pos = mol.GetConformer().GetPositions()[np.array(atom_inds_to_inpaint)]
+    atom_types = [a.GetAtomicNum() for a in mol.GetAtoms() if a.GetIdx() in atom_inds_to_inpaint]
+
+    assert len(pharm_direction) == len(pharm_pos) and len(pharm_pos) == len(pharm_types)
+    assert N_x4 >= len(pharm_pos), "N_x4 must be >= number of pharmacophores"
+    do_partial_pharm_inpainting = N_x4 > len(pharm_pos)
+
+    # inpainted_atom_mask = np.array([False if i in atom_inds_to_inpaint else True for i in range(mol.GetNumAtoms())])
+
+    assert len(atom_types) == len(atom_pos)
+    # assert len(inpainted_atom_mask) == len(atom_pos), "inpainted_atom_mask must be the same length as the number of atoms in the molecule, got %d and %d" % (len(inpainted_atom_mask), len(atom_pos))
+    # assert N_x1 >= np.sum(inpainted_atom_mask), "N_x1 must be >= number of inpainted atoms"
+    assert len(new_atom_types) == len(new_atom_type_weights), "new_atom_types and new_atom_type_weights must have the same length"
+
+    # The non-inpainted atoms can be thought of as 'scaffold'
+    do_partial_atom_inpainting = True
+
+    ptable = Chem.GetPeriodicTable()
+    atomic_number_to_symbol = {
+        ptable.GetAtomicNumber(symbol): symbol for symbol in params['dataset']['x1']['atom_types'] if isinstance(symbol, str)
+    }
+    atom_symbols = [atomic_number_to_symbol[z] for z in atom_types]
+
+    # centering about provided center of mass (of x1)
+    surface = surface - center_of_mass
+    pharm_pos = pharm_pos - center_of_mass
+    atom_pos = atom_pos - center_of_mass
+
+    # adding small noise to pharm_pos to avoid overlapping points
+    pharm_pos = pharm_pos + np.random.randn(*pharm_pos.shape) * 0.01
+
+    # accounting for virtual nodes
+    surface = np.concatenate([np.array([[0.0, 0.0, 0.0]]), surface], axis = 0)
+    electrostatics = np.concatenate([np.array([0.0]), electrostatics], axis = 0)
+    pharm_types = pharm_types + 1
+    pharm_types = np.concatenate([np.array([0]), pharm_types], axis = 0)
+    pharm_pos = np.concatenate([np.array([[0.0, 0.0, 0.0]]), pharm_pos], axis = 0)
+    pharm_direction = np.concatenate([np.array([[0.0, 0.0, 0.0]]), pharm_direction], axis = 0)
+    
+    atom_pos = np.concatenate([np.array([[0.0, 0.0, 0.0]]), atom_pos], axis = 0)
+    atom_type_map = {atomic_symbol: i for i, atomic_symbol in enumerate(params['dataset']['x1']['atom_types'])}
+    atom_type_indices = np.array([atom_type_map[z] for z in atom_symbols])
+    atom_type_indices = np.concatenate([np.array([0]), atom_type_indices], axis = 0)
+
+    num_atom_types = len(params['dataset']['x1']['atom_types']) + len(params['dataset']['x1']['charge_types'])
+    atom_types_one_hot = np.zeros((atom_type_indices.size, num_atom_types))
+    atom_types_one_hot[np.arange(atom_type_indices.size), atom_type_indices] = 1
+    atom_types = atom_types_one_hot
+
+    pharm_types_one_hot = np.zeros((pharm_types.size, params['dataset']['x4']['max_node_types']))
+    pharm_types_one_hot[np.arange(pharm_types.size), pharm_types] = 1
+    pharm_types = pharm_types_one_hot
+
+    # scaling features
+    electrostatics = electrostatics * params['dataset']['x3']['scale_node_features']
+    pharm_types = pharm_types * params['dataset']['x4']['scale_node_features']
+    pharm_direction = pharm_direction * params['dataset']['x4']['scale_vector_features']
+    atom_types = atom_types * params['dataset']['x1']['scale_atom_features']
+    
+    # defining inpainting targets
+    target_inpaint_x1_x = torch.as_tensor(atom_types, dtype=torch.float)
+    target_inpaint_x1_pos = torch.as_tensor(atom_pos, dtype=torch.float)
+    target_inpaint_x1_mask = torch.zeros(atom_pos.shape[0], dtype=torch.long)
+    target_inpaint_x1_mask[0] = 1 # virtual node
+    # target_inpaint_x1_mask[1:] = torch.as_tensor(inpainted_atom_mask, dtype=torch.long) # True for non-inpainted atoms -> False
+    target_inpaint_x1_mask = target_inpaint_x1_mask == 0
+
+    target_inpaint_x2_pos = torch.as_tensor(surface, dtype = torch.float)
+    target_inpaint_x2_mask = torch.zeros(surface.shape[0], dtype = torch.long)
+    target_inpaint_x2_mask[0] = 1
+    target_inpaint_x2_mask = target_inpaint_x2_mask == 0
+
+    target_inpaint_x3_x = torch.as_tensor(electrostatics, dtype = torch.float)
+    target_inpaint_x3_pos = torch.as_tensor(surface, dtype = torch.float)
+    target_inpaint_x3_mask = torch.zeros(electrostatics.shape[0], dtype = torch.long)
+    target_inpaint_x3_mask[0] = 1
+    target_inpaint_x3_mask = target_inpaint_x3_mask == 0
+
+    target_inpaint_x4_x = torch.as_tensor(pharm_types, dtype = torch.float)
+    target_inpaint_x4_pos = torch.as_tensor(pharm_pos, dtype = torch.float)
+    target_inpaint_x4_direction = torch.as_tensor(pharm_direction, dtype = torch.float)
+    target_inpaint_x4_mask = torch.zeros(pharm_types.shape[0], dtype = torch.long)
+    target_inpaint_x4_mask[0] = 1
+    target_inpaint_x4_mask = target_inpaint_x4_mask == 0
+
+    # Create full forward trajectories for all modalities
+    # For x1, we create a trajectory for all atoms, only masking the virtual node from noise.
+    # x1_forward_trajectory_mask = torch.zeros(target_inpaint_x1_pos.shape[0], dtype=torch.bool)
+    # x1_forward_trajectory_mask[0] = True
+    x1_pos_inpainting_trajectory = forward_trajectory(
+        x=target_inpaint_x1_pos, ts=params['noise_schedules']['x1']['ts'],
+        alpha_ts=params['noise_schedules']['x1']['alpha_ts'], sigma_ts=params['noise_schedules']['x1']['sigma_ts'],
+        remove_COM_from_noise=True, mask=target_inpaint_x1_mask, deterministic=False,
+        batch_size=batch_size
+    )
+    x1_x_inpainting_trajectory = forward_trajectory(
+        x=target_inpaint_x1_x, ts=params['noise_schedules']['x1']['ts'],
+        alpha_ts=params['noise_schedules']['x1']['alpha_ts'], sigma_ts=params['noise_schedules']['x1']['sigma_ts'],
+        remove_COM_from_noise=False, mask=target_inpaint_x1_mask, deterministic=False,
+        batch_size=batch_size
+    )
+    x2_pos_inpainting_trajectory = forward_trajectory(
+        x=target_inpaint_x2_pos, ts=params['noise_schedules']['x2']['ts'],
+        alpha_ts=params['noise_schedules']['x2']['alpha_ts'], sigma_ts=params['noise_schedules']['x2']['sigma_ts'],
+        remove_COM_from_noise=False, mask=target_inpaint_x2_mask, deterministic=False,
+        batch_size=None
+    )
+    x3_pos_inpainting_trajectory = forward_trajectory(
+        x=target_inpaint_x3_pos, ts=params['noise_schedules']['x3']['ts'],
+        alpha_ts=params['noise_schedules']['x3']['alpha_ts'], sigma_ts=params['noise_schedules']['x3']['sigma_ts'],
+        remove_COM_from_noise=False, mask=target_inpaint_x3_mask, deterministic=False,
+        batch_size=None
+    )
+    x3_x_inpainting_trajectory = forward_trajectory(
+        x=target_inpaint_x3_x, ts=params['noise_schedules']['x3']['ts'],
+        alpha_ts=params['noise_schedules']['x3']['alpha_ts'], sigma_ts=params['noise_schedules']['x3']['sigma_ts'],
+        remove_COM_from_noise=False, mask=target_inpaint_x3_mask, deterministic=False,
+        batch_size=None
+    )
+    x4_x_inpainting_trajectory = forward_trajectory(
+        x=target_inpaint_x4_x, ts=params['noise_schedules']['x4']['ts'],
+        alpha_ts=params['noise_schedules']['x4']['alpha_ts'], sigma_ts=params['noise_schedules']['x4']['sigma_ts'],
+        remove_COM_from_noise=False, mask=target_inpaint_x4_mask, deterministic=False,
+        batch_size=None
+    )
+    x4_pos_inpainting_trajectory = forward_trajectory(
+        x=target_inpaint_x4_pos, ts=params['noise_schedules']['x4']['ts'],
+        alpha_ts=params['noise_schedules']['x4']['alpha_ts'], sigma_ts=params['noise_schedules']['x4']['sigma_ts'],
+        remove_COM_from_noise=False, mask=target_inpaint_x4_mask, deterministic=False,
+        batch_size=None
+    )
+    x4_direction_inpainting_trajectory = forward_trajectory(
+        x=target_inpaint_x4_direction, ts=params['noise_schedules']['x4']['ts'],
+        alpha_ts=params['noise_schedules']['x4']['alpha_ts'], sigma_ts=params['noise_schedules']['x4']['sigma_ts'],
+        remove_COM_from_noise=False, mask=target_inpaint_x4_mask, deterministic=False,
+        batch_size=None
+    )
+
+    ###########  Initializing states at t=start_t   ##############
+
+
+    start_t_val = int(T * start_time)
+    if start_t_val >= T:
+        start_t_val = T
+    if start_t_val <= 0:
+        raise ValueError("start_time must be > 0")
+
+    start_t_idx = np.where(time_steps == start_t_val)[0][0]
+
+    include_virtual_node = True
+    num_atom_types = len(params['dataset']['x1']['atom_types']) + len(params['dataset']['x1']['charge_types'])
+    num_pharm_types = params['dataset']['x4']['max_node_types']
+
+    x1_sigma_ts = torch.from_numpy(params['noise_schedules']['x1']['sigma_ts']).float()
+    # Initialize x1
+    # Fill in from trajectory
+    x1_pos_t = x1_pos_inpainting_trajectory[start_t_val].reshape(batch_size, -1, 3)
+    # Add new atoms if needed
+    if N_x1 > len(atom_pos) - 1: # -1 for virtual node
+        # TODO: ignore centering by COM with new atoms for now
+        num_to_add = N_x1 - (len(atom_pos) - 1)
+        if new_atom_placement_region is not None:
+            # Sample new atoms in the region and forward noise them
+            new_atom_pos = ((torch.rand(batch_size, num_to_add, 3)*2 - 1) * new_atom_placement_radius + new_atom_placement_region).float()
+            new_atom_pos, _ = forward_jump(new_atom_pos, t_start=1, jump=start_t_val, sigma_ts=x1_sigma_ts, remove_COM_from_noise=False, batch=None, mask=None)
+        else:
+            # Sample new atoms from Gaussian distribution
+            new_atom_pos = torch.randn(batch_size, num_to_add, 3) * params['noise_schedules']['x1']['sigma_ts'][start_t_val]
+        x1_pos_t = torch.cat([x1_pos_t, new_atom_pos], dim=1)
+        target_inpaint_x1_mask = torch.cat([target_inpaint_x1_mask, torch.zeros(num_to_add, dtype=torch.long)], dim=0)
+    x1_pos_t = x1_pos_t.reshape(-1, 3)
+
+    x1_x_t = x1_x_inpainting_trajectory[start_t_val].reshape(batch_size, -1, num_atom_types)
+    # Add new atoms if needed
+    if N_x1 > len(atom_pos) - 1:
+        num_to_add = N_x1 - (len(atom_pos) -1)
+        possible_atom_types = [params['dataset']['x1']['atom_types'].index(a) for a in new_atom_types]
+        atom_types_to_add = torch.from_numpy(
+            np.random.choice(possible_atom_types,
+                             size=(batch_size, num_to_add),
+                             replace=True,
+                             p=new_atom_type_weights)
+        ).long()
+        new_atom_types = torch.nn.functional.one_hot(atom_types_to_add,
+                                                     num_classes=len(params['dataset']['x1']['atom_types']))
+        new_charge_types = torch.nn.functional.one_hot(torch.zeros((batch_size, num_to_add), dtype=torch.long), # neutral charge
+                                                       num_classes = len(params['dataset']['x1']['charge_types']))
+        new_atom_x = torch.cat([new_atom_types, new_charge_types], dim=-1).float()
+        new_atom_x = new_atom_x * params['dataset']['x1']['scale_atom_features'] # scale to match x1
+        new_atom_x, _ = forward_jump(new_atom_x, t_start=1, jump=start_t_val, sigma_ts=x1_sigma_ts, remove_COM_from_noise=False, batch=None, mask=None)
+        # noise_x = torch.randn(batch_size, num_to_add, num_atom_types) * params['noise_schedules']['x1']['sigma_ts'][start_t_val]
+        # x1_x_t = torch.cat([x1_x_t, noise_x], dim=1)
+        x1_x_t = torch.cat([x1_x_t, new_atom_x], dim=1)
+    x1_x_t = x1_x_t.reshape(-1, num_atom_types)
+
+    # Initialize bond features from molecule, then noise to start_t_val
+    num_atoms_provided = mol.GetNumAtoms()
+    bond_adj = 1 - np.diag(np.ones(N_x1, dtype=int))
+    bond_adj = np.triu(bond_adj)
+    bond_edge_index = np.stack(bond_adj.nonzero(), axis=0)
+
+    bond_types_dict = {b: i for i, b in enumerate(params['dataset']['x1']['bond_types'])}
+    max_bond_types_x1 = len(bond_types_dict)
+
+    # Bond inpainting setup (similar to generate function)
+    bond_inpaint_mask = None
+    inpaint_x1_bond_edge_x = None
+    x1_bond_edge_x_inpainting_trajectory = None
+
+    if inpaint_x1_bonds:
+        # bond types
+        BOND_TYPES = params['dataset']['x1']['bond_types']
+        BOND_TYPES_DICT = {b:BOND_TYPES.index(b) for b in BOND_TYPES}
+        MAX_BOND_TYPES = len(BOND_TYPES_DICT)
+
+        # Create bond adjacency matrix for atoms to inpaint
+        N_x1_inpaint = len(atom_inds_to_inpaint)
+        _bond_adj = np.triu(1-np.diag(np.ones(N_x1_inpaint, dtype = int)))
+        _bond_edge_index = np.stack(_bond_adj.nonzero(), axis = 0)
+
+        if exit_vector_atom_inds:
+            # This will inpaint any "bond" between atoms-to-inpaint with all other atoms,
+            # but does not specify bonds with exit vector atoms and non-inpainted atoms.
+            assert all(ind in atom_inds_to_inpaint for ind in exit_vector_atom_inds), \
+                "exit_vector_atom_inds must be a subset of atom_inds_to_inpaint"
+            _index_inpaint_no_exit_vector = np.array([atom_inds_to_inpaint.index(idx) for idx in atom_inds_to_inpaint
+                                if idx not in exit_vector_atom_inds])
+            _atom_mask_no_exit_vector = np.isin(_bond_edge_index,
+                np.arange(len(atom_inds_to_inpaint))[_index_inpaint_no_exit_vector]
+            )
+            bond_inpaint_inds = np.where(_atom_mask_no_exit_vector.any(axis=0))[0]
+            bond_inpaint_mask = np.where(_atom_mask_no_exit_vector.any(axis=0), True, False)
+        else:
+            _atom_mask = np.isin(_bond_edge_index, np.arange(len(atom_inds_to_inpaint)))
+            bond_inpaint_inds = np.where(_atom_mask.all(axis=0))[0]
+            bond_inpaint_mask = np.where(_atom_mask.all(axis=0), True, False)
+
+        bond_types_inpaint = []
+        for idx_1, idx_2 in _bond_edge_index[:,bond_inpaint_mask].T:
+            if int(idx_1) > len(atom_inds_to_inpaint) - 1 or int(idx_2) > len(atom_inds_to_inpaint) - 1:
+                bond_types_inpaint.append(BOND_TYPES_DICT[None])
+                continue
+            idx_1_mapped = atom_inds_to_inpaint[int(idx_1)]
+            idx_2_mapped = atom_inds_to_inpaint[int(idx_2)]
+            bond = mol.GetBondBetweenAtoms(idx_1_mapped, idx_2_mapped)  
+            if bond is None:
+                bond_types_inpaint.append(BOND_TYPES_DICT[None]) # non-bonded edge type; == 0
+            else:
+                bond_type = BOND_TYPES_DICT[str(bond.GetBondType())]
+                bond_types_inpaint.append(bond_type)
+
+        # one-hot encoding of bond types
+        inpaint_x1_bond_edge_x = np.zeros((_bond_edge_index.shape[1], MAX_BOND_TYPES))
+        # just select the bonds that we care about
+        inpaint_x1_bond_edge_x[bond_inpaint_inds, bond_types_inpaint] = 1
+        inpaint_x1_bond_edge_x = inpaint_x1_bond_edge_x * params['dataset']['x1']['scale_bond_features']
+        inpaint_x1_bond_edge_x = torch.from_numpy(inpaint_x1_bond_edge_x.copy()).float()
+        bond_inpaint_mask = torch.from_numpy(bond_inpaint_mask.copy()).long()
+
+        # Create trajectory for inpainted bonds
+        x1_bond_edge_x_inpainting_trajectory = forward_trajectory(
+            x = inpaint_x1_bond_edge_x[bond_inpaint_mask],
+            ts = params['noise_schedules']['x1']['ts'],
+            alpha_ts = params['noise_schedules']['x1']['alpha_ts'],
+            sigma_ts = params['noise_schedules']['x1']['sigma_ts'],
+        )
+
+    # Bond initialization for others atoms
+    bond_types = []
+    for b in range(bond_edge_index.shape[1]):
+        idx_1 = int(bond_edge_index[0, b])
+        idx_2 = int(bond_edge_index[1, b])
+        if idx_1 < num_atoms_provided and idx_2 < num_atoms_provided:
+            bond = mol.GetBondBetweenAtoms(idx_1, idx_2)
+            if bond is None:
+                bond_types.append(bond_types_dict[None])
+            else:
+                bond_type = bond_types_dict.get(str(bond.GetBondType()))
+                if bond_type is None:
+                    bond_type = bond_types_dict[None] # treat unknown bond types as no bond
+                bond_types.append(bond_type)
+        else:
+            if np.random.rand() < 1 / N_x1**2:
+                 # 1/N_x1**2 probability of adding a bond to a new atom
+                 # Potentially improves diffusion process with more realistic bonds
+                bond_types.append(1) # Single bond
+            else:
+                bond_types.append(bond_types_dict[None])
+
+    # Inpainted bonds (if True) overwrite these initialized bonds in _inference_step
+    bond_edge_x = np.zeros((bond_edge_index.shape[1], max_bond_types_x1))
+    bond_edge_x[np.arange(len(bond_types)), bond_types] = 1
+    bond_edge_x = torch.from_numpy(bond_edge_x * params['dataset']['x1']['scale_bond_features']).float()
+
+    # Jump to start_t_val
+    x1_sigma_ts = torch.from_numpy(params['noise_schedules']['x1']['sigma_ts']).float()
+    # t_start=1 because you subtract 1 from the t_start to get the index
+    x1_bond_edge_x_t, _ = forward_jump(bond_edge_x, t_start=1, jump=start_t_val, sigma_ts=x1_sigma_ts, remove_COM_from_noise=False, batch=None, mask=None)
+    x1_bond_edge_x_t = x1_bond_edge_x_t.repeat(batch_size, 1)
+
+    _, _, _, x1_batch, virtual_node_mask_x1, bond_edge_index_x1 = _initialize_x1_state(
+        batch_size, N_x1, params, 1.0, include_virtual_node
+    )
+
+    # Initialize x2, x3, x4 from their inpainting trajectories
+    x2_pos_t = x2_pos_inpainting_trajectory[start_t_val].repeat(batch_size, 1, 1).reshape(-1, 3)
+    _, x2_x_t, x2_batch, virtual_node_mask_x2 = _initialize_x2_state(
+        batch_size, N_x2, params, 0.0, include_virtual_node # x is zero for x2
+    )
+
+    x3_pos_t = x3_pos_inpainting_trajectory[start_t_val].repeat(batch_size, 1, 1).reshape(-1, 3)
+    x3_x_t = x3_x_inpainting_trajectory[start_t_val].repeat(batch_size, 1).reshape(-1)
+    _, _, x3_batch, virtual_node_mask_x3 = _initialize_x3_state(
+        batch_size, N_x3, params, 0.0, include_virtual_node # not using noisy x
+    )
+
+    x4_pos_t = torch.randn(batch_size * (N_x4 + 1), 3)
+    x4_direction_t = torch.randn(batch_size * (N_x4 + 1), 3)
+    x4_x_t = torch.randn(batch_size * (N_x4 + 1), num_pharm_types)
+    
+    x4_pos_t_inpaint = x4_pos_inpainting_trajectory[start_t_val].repeat(batch_size, 1, 1)
+    x4_direction_t_inpaint = x4_direction_inpainting_trajectory[start_t_val].repeat(batch_size, 1, 1)
+    x4_x_t_inpaint = x4_x_inpainting_trajectory[start_t_val].repeat(batch_size, 1, 1)
+    
+    num_pharm = x4_pos_t_inpaint.shape[1]
+    x4_pos_t = x4_pos_t.reshape(batch_size, N_x4 + 1, 3)
+    x4_pos_t[:, :num_pharm] = x4_pos_t_inpaint
+    x4_pos_t = x4_pos_t.reshape(-1, 3)
+
+    x4_direction_t = x4_direction_t.reshape(batch_size, N_x4 + 1, 3)
+    x4_direction_t[:, :num_pharm] = x4_direction_t_inpaint
+    x4_direction_t = x4_direction_t.reshape(-1, 3)
+
+    x4_x_t = x4_x_t.reshape(batch_size, N_x4 + 1, num_pharm_types)
+    x4_x_t[:, :num_pharm] = x4_x_t_inpaint
+    x4_x_t = x4_x_t.reshape(-1, num_pharm_types)
+
+    _, _, _, x4_batch, virtual_node_mask_x4 = _initialize_x4_state(
+        batch_size, N_x4, params, 1.0, include_virtual_node
+    )
+
+    ######## Main Denoising Loop #########
+    inpainting_dict = {
+        'inpaint_x1_pos': inpaint_x1_pos, 'inpaint_x1_x': inpaint_x1_x,
+        'inpaint_x1_bonds': inpaint_x1_bonds,
+        'inpaint_x2_pos': inpaint_x2_pos, 'inpaint_x3_pos': inpaint_x3_pos,
+        'inpaint_x3_x': inpaint_x3_x, 'inpaint_x4_pos': inpaint_x4_pos,
+        'inpaint_x4_direction': inpaint_x4_direction, 'inpaint_x4_type': inpaint_x4_type,
+        'x1_pos_inpainting_trajectory': x1_pos_inpainting_trajectory,
+        'x1_x_inpainting_trajectory': x1_x_inpainting_trajectory,
+        'x1_bond_edge_x_inpainting_trajectory': x1_bond_edge_x_inpainting_trajectory,
+        'bond_inpaint_mask': bond_inpaint_mask,
+        'x2_pos_inpainting_trajectory': x2_pos_inpainting_trajectory,
+        'x3_pos_inpainting_trajectory': x3_pos_inpainting_trajectory,
+        'x3_x_inpainting_trajectory': x3_x_inpainting_trajectory,
+        'x4_pos_inpainting_trajectory': x4_pos_inpainting_trajectory,
+        'x4_direction_inpainting_trajectory': x4_direction_inpainting_trajectory,
+        'x4_x_inpainting_trajectory': x4_x_inpainting_trajectory,
+        'stop_inpainting_at_time_x1_pos': stop_inpainting_at_time_x1_pos,
+        'stop_inpainting_at_time_x1_x': stop_inpainting_at_time_x1_x,
+        'stop_inpainting_at_time_x1_bonds': stop_inpainting_at_time_x1_bonds,
+        'stop_inpainting_at_time_x2': 0.0,
+        'stop_inpainting_at_time_x3': 0.0,
+        'stop_inpainting_at_time_x4': 0.0,
+        'add_noise_to_inpainted_x2_pos': 0.0, 'add_noise_to_inpainted_x3_pos': 0.0,
+        'add_noise_to_inpainted_x3_x': 0.0, 'add_noise_to_inpainted_x4_pos': 0.0,
+        'add_noise_to_inpainted_x4_direction': 0.0, 'add_noise_to_inpainted_x4_type': 0.0,
+        'do_partial_pharm_inpainting': do_partial_pharm_inpainting,
+        'do_partial_atom_inpainting': do_partial_atom_inpainting,
+        # This is the new key for the mask
+        # 'inpainted_atom_mask': target_inpaint_x1_mask, # Pass the mask of atoms to be inpainted
+    }
+
+    inference_step = partial(
+        _inference_step,
+        model_pl=model_pl,
+        params=params,
+        time_steps=time_steps,
+        harmonize=False, harmonize_ts=[], harmonize_jumps=[],
+        batch_size=batch_size,
+        denoising_noise_scale=denoising_noise_scale,
+        inject_noise_at_ts=inject_noise_at_ts, inject_noise_scales=inject_noise_scales,
+        virtual_node_mask_x1=virtual_node_mask_x1,
+        virtual_node_mask_x2=virtual_node_mask_x2,
+        virtual_node_mask_x3=virtual_node_mask_x3,
+        virtual_node_mask_x4=virtual_node_mask_x4,
+        inpainting_dict=inpainting_dict,
+    )
+    if verbose:
+        pbar = tqdm(total=len(time_steps) - start_t_idx -1, position=0, leave=True, miniters=50, maxinterval=1000)
+    else:
+        pbar = None
+
+    current_time_idx = start_t_idx
+    if store_trajectories:
+        trajectories = [_extract_generated_samples(
+            x1_x_t, x1_pos_t, x1_bond_edge_x_t, virtual_node_mask_x1,
+            x2_pos_t, virtual_node_mask_x2,
+            x3_pos_t, x3_x_t, virtual_node_mask_x3,
+            x4_pos_t, x4_direction_t, x4_x_t, virtual_node_mask_x4,
+            params, batch_size
+        )]
+    if store_trajectories_x0:
+        trajectories_x0 = []
+        
+    while current_time_idx < len(time_steps) - 1:
+        current_time_idx, next_state = inference_step(
+            current_time_idx=current_time_idx,
+            x1_pos_t=x1_pos_t, x1_x_t=x1_x_t, x1_bond_edge_x_t=x1_bond_edge_x_t, x1_batch=x1_batch,
+            bond_edge_index_x1=bond_edge_index_x1,
+            x2_pos_t=x2_pos_t, x2_x_t=x2_x_t, x2_batch=x2_batch,
+            x3_pos_t=x3_pos_t, x3_x_t=x3_x_t, x3_batch=x3_batch,
+            x4_pos_t=x4_pos_t, x4_direction_t=x4_direction_t, x4_x_t=x4_x_t, x4_batch=x4_batch,
+            pbar=pbar,
+            include_x0_pred=store_trajectories_x0,
+        )
+
+        x1_pos_t = next_state['x1_pos_t_1']
+        x1_x_t = next_state['x1_x_t_1']
+        x1_bond_edge_x_t = next_state['x1_bond_edge_x_t_1']
+        x2_pos_t = next_state['x2_pos_t_1']
+        x2_x_t = next_state['x2_x_t_1']
+        x3_pos_t = next_state['x3_pos_t_1']
+        x3_x_t = next_state['x3_x_t_1']
+        x4_pos_t = next_state['x4_pos_t_1']
+        x4_direction_t = next_state['x4_direction_t_1']
+        x4_x_t = next_state['x4_x_t_1']
+
+        if store_trajectories and current_time_idx < len(time_steps) - 1: # don't store the final state
+            trajectories.append(_extract_generated_samples(
+                x1_x_t, x1_pos_t, x1_bond_edge_x_t, virtual_node_mask_x1,
+                x2_pos_t, virtual_node_mask_x2,
+                x3_pos_t, x3_x_t, virtual_node_mask_x3,
+                x4_pos_t, x4_direction_t, x4_x_t, virtual_node_mask_x4,
+                params, batch_size
+            ))
+
+        if store_trajectories_x0 and 'x0_pred' in next_state:
+            x1_pos_0 = next_state['x0_pred']['x1_pos_0']
+            x1_x_0 = next_state['x0_pred']['x1_x_0']
+            x1_bond_edge_x_0 = next_state['x0_pred']['x1_bond_edge_x_0']
+            x2_pos_0 = next_state['x0_pred']['x2_pos_0']
+            x3_pos_0 = next_state['x0_pred']['x3_pos_0']
+            x3_x_0 = next_state['x0_pred']['x3_x_0']
+            x4_pos_0 = next_state['x0_pred']['x4_pos_0']
+            x4_direction_0 = next_state['x0_pred']['x4_direction_0']
+            x4_x_0 = next_state['x0_pred']['x4_x_0']
+
+            trajectories_x0.append(_extract_generated_samples(
+                x1_x_0, x1_pos_0, x1_bond_edge_x_0, virtual_node_mask_x1,
+                x2_pos_0, virtual_node_mask_x2,
+                x3_pos_0, x3_x_0, virtual_node_mask_x3,
+                x4_pos_0, x4_direction_0, x4_x_0, virtual_node_mask_x4,
+                params, batch_size
+            ))
+        
+
+    if pbar is not None:
+        pbar.close()
+
+    del next_state
+
+    generated_structures = _extract_generated_samples(
+        x1_x_t, x1_pos_t, x1_bond_edge_x_t, virtual_node_mask_x1,
+        x2_pos_t, virtual_node_mask_x2,
+        x3_pos_t, x3_x_t, virtual_node_mask_x3,
+        x4_pos_t, x4_direction_t, x4_x_t, virtual_node_mask_x4,
+        params, batch_size)
+
+    if store_trajectories:
+        _add_trajectories_to_generated_structures(
+            generated_structures, batch_size, trajectories, is_x0=False
+        )
+
+    if store_trajectories_x0:
+        _add_trajectories_to_generated_structures(
+            generated_structures, batch_size, trajectories_x0, is_x0=True
+        )
+
+    return generated_structures
