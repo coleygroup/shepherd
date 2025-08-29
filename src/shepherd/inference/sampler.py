@@ -1,16 +1,11 @@
 """
 This module contains the inference sampler for the ShEPhERD model.
 """
-import os
-import sys
-import pathlib
 from tqdm import tqdm
-import pickle
 from copy import deepcopy
 from functools import partial
 from typing import Optional
 
-import open3d
 from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds
 import numpy as np
@@ -926,6 +921,7 @@ def generate_from_intermediate_time(
     ) -> list[dict]:
     """
     Runs inpainting-based inference of ShEPhERD starting from an intermediate time step.
+    Requires a conformer that is assumed to partially be inpainted.
     This function assumes that modalities x1, x3, and x4 are being inpainted.
 
     The key features are:
@@ -1040,7 +1036,7 @@ def generate_from_intermediate_time(
     inpaint_x4_type = True
 
     atom_pos = mol.GetConformer().GetPositions()[np.array(atom_inds_to_inpaint)]
-    atom_types = [a.GetAtomicNum() for a in mol.GetAtoms() if a.GetIdx() in atom_inds_to_inpaint]
+    atom_types = [mol.GetAtomWithIdx(idx).GetAtomicNum() for idx in atom_inds_to_inpaint]
 
     assert len(pharm_direction) == len(pharm_pos) and len(pharm_pos) == len(pharm_types)
     assert N_x4 >= len(pharm_pos), "N_x4 must be >= number of pharmacophores"
