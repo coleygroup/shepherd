@@ -232,8 +232,8 @@ def inference_sample(
             },
         }
     If return_trajectories is True, then the output dictionaries will have an additional key
-    'trajectories', which is a list of dictionaries, each containing a list of dictionaries,
-    each containing the trajectories for each data modality: List[Dict['trajectories': List[Dict]]]
+    'trajectories', which is a list of dictionaries in the same format for different time steps
+    List[Dict['trajectories': List[Dict]]]
     """
     
     params = model_pl.params
@@ -1189,24 +1189,30 @@ def inference_sample(
             },
         }
         if return_trajectories:
-            generated_dict['trajectories'] = {
-                'x1': {
-                    'atoms': [np.split(x1_x, batch_size)[b] for x1_x in x1_t_x_list],
-                    'positions': [np.split(x1_pos, batch_size)[b] for x1_pos in x1_t_pos_list],
-                },
-                'x2': {
-                    'positions': [np.split(x2_pos, batch_size)[b] for x2_pos in x2_t_pos_list],
-                },
-                'x3': {
-                    'charges': [np.split(x3_x, batch_size)[b] for x3_x in x3_t_x_list],
-                    'positions': [np.split(x3_pos, batch_size)[b] for x3_pos in x3_t_pos_list],
-                },
-                'x4': {
-                    'types': [np.split(x4_x, batch_size)[b] for x4_x in x4_t_x_list],
-                    'positions': [np.split(x4_pos, batch_size)[b] for x4_pos in x4_t_pos_list],
-                    'directions': [np.split(x4_direction, batch_size)[b] for x4_direction in x4_t_direction_list],
-                },
-            }
+            # Each trajectory frame is stored as a complete dictionary structure
+            generated_dict['trajectories'] = [
+                {
+                    'x1': {
+                        'atoms': np.split(x1_x, batch_size)[b],
+                        'positions': np.split(x1_pos, batch_size)[b],
+                    },
+                    'x2': {
+                        'positions': np.split(x2_pos, batch_size)[b],
+                    },
+                    'x3': {
+                        'charges': np.split(x3_x, batch_size)[b],
+                        'positions': np.split(x3_pos, batch_size)[b],
+                    },
+                    'x4': {
+                        'types': np.split(x4_x, batch_size)[b],
+                        'positions': np.split(x4_pos, batch_size)[b],
+                        'directions': np.split(x4_direction, batch_size)[b],
+                    },
+                }
+                for x1_x, x1_pos, x2_pos, x3_x, x3_pos, x4_x, x4_pos, x4_direction 
+                in zip(x1_t_x_list, x1_t_pos_list, x2_t_pos_list, 
+                       x3_t_x_list, x3_t_pos_list, x4_t_x_list, x4_t_pos_list, x4_t_direction_list)
+            ]
         generated_structures.append(generated_dict)
     
     return generated_structures
