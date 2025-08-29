@@ -40,6 +40,52 @@ from shepherd.inference.steps import (
     _extract_generated_samples
 )
 
+def _add_trajectories_to_generated_structures(
+    generated_structures: list[dict],
+    batch_size: int,
+    trajectories: list[list[dict]],
+    is_x0: bool = False
+) -> None:
+    """
+    Helper function to add trajectory data to generated structures.
+    
+    Parameters
+    ----------
+    generated_structures : list[dict]
+        The generated structures to add trajectories to.
+    batch_size : int
+        Number of batch elements.
+    trajectories : list[list[dict]]
+        List of trajectory frames, each containing batch data.
+    is_x0 : bool, default=False
+        Whether these are x0 prediction trajectories or regular trajectories.
+    """
+    trajectory_key = 'trajectories_x0' if is_x0 else 'trajectories'
+    
+    for b in range(batch_size):
+        generated_structures[b][trajectory_key] = [
+            {
+                'x1': {
+                    'atoms': traj[b]['x1']['atoms'],
+                    'positions': traj[b]['x1']['positions'],
+                    'bonds': traj[b]['x1']['bonds'],
+                },
+                'x2': {
+                    'positions': traj[b]['x2']['positions'],
+                },
+                'x3': {
+                    'charges': traj[b]['x3']['charges'],
+                    'positions': traj[b]['x3']['positions'],
+                },
+                'x4': {
+                    'types': traj[b]['x4']['types'],
+                    'positions': traj[b]['x4']['positions'],
+                    'directions': traj[b]['x4']['directions'],
+                },
+            }
+            for traj in trajectories
+        ]
+
 def generate(
     model_pl: LightningModule,
     batch_size: int,
@@ -72,7 +118,9 @@ def generate(
     inpaint_x4_direction: bool = False,
     inpaint_x4_type: bool = False,
 
-    stop_inpainting_at_time_x1: float = 0.0,
+    stop_inpainting_at_time_x1_pos: float = 0.0,
+    stop_inpainting_at_time_x1_x: float = 0.0,
+    stop_inpainting_at_time_x1_bonds: float = 0.0,
 
     stop_inpainting_at_time_x2: float = 0.0,
     add_noise_to_inpainted_x2_pos: float = 0.0,
@@ -102,9 +150,13 @@ def generate(
     # Other options for inference
     verbose: bool = True,
     store_trajectories: bool = False,
+    store_trajectories_x0: bool = False,
     ) -> list[dict]:
     """
     Runs inference of ShEPhERD to sample `batch_size` number of molecules.
+
+    We diffuse from time T=400 to time T=0. When represented as a float,
+    this is 1.0 to 0.0.
 
     Arguments
     ---------
@@ -141,13 +193,16 @@ def generate(
     inpaint_x4_direction : bool (default=False)
     inpaint_x4_type : bool (default=False)
     
-    stop_inpainting_at_time_x1 : float (default = 0.0) Time step to stop inpainting.
-        t=0.0 implies that inpainting doesn't stop.
+    stop_inpainting_at_time_x1_pos : float (default = 0.0)
+        Time step to stop inpainting atom positions.
+    stop_inpainting_at_time_x1_x : float (default = 0.0)
+        Time step to stop inpainting atom types.
+    stop_inpainting_at_time_x1_bonds : float (default = 0.0)
+        Time step to stop inpainting bond types.
 
-    stop_inpainting_at_time_x2 : float (default = 0.0) Time step to stop inpainting.
-        t=0.0 implies that inpainting doesn't stop.
-    add_noise_to_inpainted_x2_pos : float (default = 0.0) Scale of noise to add to inpainted
-        values.
+    stop_inpainting_at_time_x2 : float (default = 0.0)
+    add_noise_to_inpainted_x2_pos : float (default = 0.0)
+        Scale of noise to add to inpainted values.
     
     stop_inpainting_at_time_x3 : float (default = 0.0)
     add_noise_to_inpainted_x3_pos : float (default = 0.0)
@@ -213,6 +268,8 @@ def generate(
         Range is 0-10: 10 is difficult to synthesize.
 
     verbose : bool (default = True) Whether to print progress bar.
+    store_trajectories : bool (default = False) Whether to store the trajectories.
+    store_trajectories_x0 : bool (default = False) Whether to store the trajectories of the x0 predictions.
 
     Returns
     -------
@@ -539,7 +596,9 @@ def generate(
 
     ####################################
 
-    stop_inpainting_at_time_x1 = int(T*stop_inpainting_at_time_x1)
+    stop_inpainting_at_time_x1_pos = int(T*stop_inpainting_at_time_x1_pos)
+    stop_inpainting_at_time_x1_x = int(T*stop_inpainting_at_time_x1_x)
+    stop_inpainting_at_time_x1_bonds = int(T*stop_inpainting_at_time_x1_bonds)
     stop_inpainting_at_time_x2 = int(T*stop_inpainting_at_time_x2)
     stop_inpainting_at_time_x3 = int(T*stop_inpainting_at_time_x3)
     stop_inpainting_at_time_x4 = int(T*stop_inpainting_at_time_x4)
@@ -602,7 +661,7 @@ def generate(
     assert x1_t == x3_t
     assert x1_t == x4_t
 
-    if (x1_t > stop_inpainting_at_time_x1):
+    if (x1_t > stop_inpainting_at_time_x1_pos):
         if inpaint_x1_pos:
             if do_partial_atom_inpainting:
                 x1_pos_t_inpaint = x1_pos_inpainting_trajectory[x1_t].reshape(batch_size, -1, 3)
@@ -612,6 +671,7 @@ def generate(
             else:
                 x1_pos_t = x1_pos_inpainting_trajectory[x1_t]
 
+    if (x1_t > stop_inpainting_at_time_x1_x):
         if inpaint_x1_x:
             if do_partial_atom_inpainting:
                 x1_x_t_inpaint = x1_x_inpainting_trajectory[x1_t].reshape(batch_size, -1, num_atom_types)
@@ -621,6 +681,7 @@ def generate(
             else:
                 x1_x_t = x1_x_inpainting_trajectory[x1_t]
 
+    if (x1_t > stop_inpainting_at_time_x1_bonds):
         if inpaint_x1_bonds:
             x1_bond_edge_x_t = x1_bond_edge_x_t.reshape(batch_size, -1, MAX_BOND_TYPES)
             x1_bond_edge_x_t[:, bond_inpaint_mask] = x1_bond_edge_x_inpainting_trajectory[x1_t]
@@ -697,7 +758,9 @@ def generate(
             'x4_pos_inpainting_trajectory': x4_pos_inpainting_trajectory,
             'x4_direction_inpainting_trajectory': x4_direction_inpainting_trajectory,
             'x4_x_inpainting_trajectory': x4_x_inpainting_trajectory,
-            'stop_inpainting_at_time_x1': stop_inpainting_at_time_x1,
+            'stop_inpainting_at_time_x1_pos': stop_inpainting_at_time_x1_pos,
+            'stop_inpainting_at_time_x1_x': stop_inpainting_at_time_x1_x,
+            'stop_inpainting_at_time_x1_bonds': stop_inpainting_at_time_x1_bonds,
             'stop_inpainting_at_time_x2': stop_inpainting_at_time_x2,
             'stop_inpainting_at_time_x3': stop_inpainting_at_time_x3,
             'stop_inpainting_at_time_x4': stop_inpainting_at_time_x4,
@@ -740,6 +803,9 @@ def generate(
             x4_pos_t, x4_direction_t, x4_x_t, virtual_node_mask_x4,
             params, batch_size
         )]
+    if store_trajectories_x0:
+        trajectories_x0 = []
+
     while current_time_idx < len(time_steps) - 1:
         current_time_idx, next_state = inference_step(
             current_time_idx=current_time_idx,
@@ -749,7 +815,7 @@ def generate(
             x3_pos_t=x3_pos_t, x3_x_t=x3_x_t, x3_batch=x3_batch,
             x4_pos_t=x4_pos_t, x4_direction_t=x4_direction_t, x4_x_t=x4_x_t, x4_batch=x4_batch,
             pbar=pbar,
-            include_x0_pred=False,
+            include_x0_pred=store_trajectories_x0,
         )
 
         # update states: x_{t-1} -> x_{t}
@@ -773,6 +839,26 @@ def generate(
                 params, batch_size
             ))
 
+        if store_trajectories_x0:
+            x1_pos_0 = next_state['x0_pred']['x1_pos_0']
+            x1_x_0 = next_state['x0_pred']['x1_x_0']
+            x1_bond_edge_x_0 = next_state['x0_pred']['x1_bond_edge_x_0']
+            x2_pos_0 = next_state['x0_pred']['x2_pos_0']
+            x2_x_0 = next_state['x0_pred']['x2_x_0']
+            x3_pos_0 = next_state['x0_pred']['x3_pos_0']
+            x3_x_0 = next_state['x0_pred']['x3_x_0']
+            x4_pos_0 = next_state['x0_pred']['x4_pos_0']
+            x4_direction_0 = next_state['x0_pred']['x4_direction_0']
+            x4_x_0 = next_state['x0_pred']['x4_x_0']
+
+            trajectories_x0.append(_extract_generated_samples(
+                x1_x_0, x1_pos_0, x1_bond_edge_x_0, virtual_node_mask_x1,
+                x2_pos_0, virtual_node_mask_x2,
+                x3_pos_0, x3_x_0, virtual_node_mask_x3,
+                x4_pos_0, x4_direction_0, x4_x_0, virtual_node_mask_x4,
+                params, batch_size
+            ))
+
     if pbar is not None:
         pbar.close()
     
@@ -786,26 +872,13 @@ def generate(
         params, batch_size)
 
     if store_trajectories:
-        # Add trajectories to each batch element
-        for b in range(batch_size):
-            generated_structures[b]['trajectories'] = {
-                'x1': {
-                    'atoms': [traj[b]['x1']['atoms'] for traj in trajectories],
-                    'positions': [traj[b]['x1']['positions'] for traj in trajectories],
-                    'bonds': [traj[b]['x1']['bonds'] for traj in trajectories],
-                },
-                'x2': {
-                    'positions': [traj[b]['x2']['positions'] for traj in trajectories],
-                },
-                'x3': {
-                    'charges': [traj[b]['x3']['charges'] for traj in trajectories],
-                    'positions': [traj[b]['x3']['positions'] for traj in trajectories],
-                },
-                'x4': {
-                    'types': [traj[b]['x4']['types'] for traj in trajectories],
-                    'positions': [traj[b]['x4']['positions'] for traj in trajectories],
-                    'directions': [traj[b]['x4']['directions'] for traj in trajectories],
-                },
-            }
+        _add_trajectories_to_generated_structures(
+            generated_structures, batch_size, trajectories, is_x0=False
+        )
+
+    if store_trajectories_x0:
+        _add_trajectories_to_generated_structures(
+            generated_structures, batch_size, trajectories_x0, is_x0=True
+        )
 
     return generated_structures
