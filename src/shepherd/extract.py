@@ -137,7 +137,7 @@ def create_rdkit_molecule(sample):
 
 def remove_overlaps(generated_sample: dict,
                     inpainted_atom_positions: np.ndarray,
-                    cutoff: float = 0.5,
+                    cutoff: float = 0.7,
                     verbose: bool = False) -> dict:
     """
     Remove atoms that overlap with inpainted atoms.
@@ -146,7 +146,7 @@ def remove_overlaps(generated_sample: dict,
     Args:
         generated_sample (dict): ShEPhERD output dictionary with x1 containing atoms and positions.
         inpainted_atom_positions (np.ndarray) : Array of inpainted atom positions. (num_inpainted_atoms, 3)
-        cutoff (float): Cutoff distance (RMSD) for overlap. (default: 0.5)
+        cutoff (float): Cutoff distance (RMSD) for overlap. (default: 0.7)
         verbose (bool): Whether to print verbose output. (default: False)
 
     Returns:
