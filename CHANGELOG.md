@@ -1,3 +1,7 @@
+# August 29, 2025 (v0.2.3)
+### Add Streamlit app for demonstrations
+- Added an easy-to-use app for demonstration purposes
+
 # August 29, 2025 (v0.2.2)
 ### Refresh inference code
 - Refactored ShEPhERD inference code to be more modular (backwards compatible).
