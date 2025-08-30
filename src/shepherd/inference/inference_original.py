@@ -1,14 +1,8 @@
-import open3d 
-from shepherd.shepherd_score_utils.generate_point_cloud import (
-    get_atom_coords, 
-    get_atomic_vdw_radii, 
-    get_molecular_surface,
-    get_electrostatics,
-    get_electrostatics_given_point_charges,
-)
-from shepherd.shepherd_score_utils.pharm_utils.pharmacophore import get_pharmacophores
-from shepherd.shepherd_score_utils.conformer_generation import update_mol_coordinates
-
+"""
+Contains the inference sampler for the original ShEPhERD model.
+This is kept for legibility since it is much easier to read and implement
+(i.e., consists of many copy pastes for each interaction profile).
+"""
 import rdkit
 from rdkit.Chem import rdDetermineBonds
 
@@ -31,8 +25,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
 from shepherd.lightning_module import LightningModule
-from shepherd.datasets import HeteroDataset
-
 import importlib
 
 # harmonization functions
@@ -151,7 +143,8 @@ def inference_sample(
     pharm_types = np.zeros(5, dtype = int),
     pharm_pos = np.zeros((5,3)),
     pharm_direction = np.zeros((5,3)),
-    
+    return_trajectories = False,
+    verbose=False,
 ):
     """
     Runs inference of ShEPhERD to sample `batch_size` number of molecules.
@@ -213,6 +206,8 @@ def inference_sample(
         coordinates.
     pharm_direction : np.ndarray (<=N_x4,3) (default = np.zeros((5,3))) Pharmacophore directions as
         unit vectors.
+    return_trajectories : bool (default = False) Whether to return the trajectories.
+    verbose : bool (default = False) Whether to print verbose output.
 
     Returns
     -------
@@ -236,6 +231,9 @@ def inference_sample(
                 'directions': np.ndarray (N_x4, 3) Unit vectors of pharmacophores.
             },
         }
+    If return_trajectories is True, then the output dictionaries will have an additional key
+    'trajectories', which is a list of dictionaries in the same format for different time steps
+    List[Dict['trajectories': List[Dict]]]
     """
     
     params = model_pl.params
@@ -635,21 +633,22 @@ def inference_sample(
     
     
     ######## Main Denoising Loop #########
+    if verbose:
+        pbar = tqdm(total= T + sum(harmonize_jumps) * int(harmonize), position=0, leave=True)
     
-    pbar = tqdm(total= T + sum(harmonize_jumps) * int(harmonize), position=0, leave=True)
-    
-    x1_t_x_list = []
-    x1_t_bond_edge_x_list = []
-    x1_t_pos_list = []
-    
-    x2_t_pos_list = []
-    
-    x3_t_x_list = []
-    x3_t_pos_list = []
-    
-    x4_t_x_list = []
-    x4_t_pos_list = []
-    x4_t_direction_list = []
+    if return_trajectories:
+        x1_t_x_list = []
+        x1_t_bond_edge_x_list = []
+        x1_t_pos_list = []
+        
+        x2_t_pos_list = []
+        
+        x3_t_x_list = []
+        x3_t_pos_list = []
+        
+        x4_t_x_list = []
+        x4_t_pos_list = []
+        x4_t_direction_list = []
     
     while t > 0:
         
@@ -1091,18 +1090,19 @@ def inference_sample(
         
         
         # saving intermediate states for visualization / tracking
-        x1_t_x_list.append(x1_x_t.detach().cpu().numpy())
-        x1_t_bond_edge_x_list.append(x1_bond_edge_x_t.detach().cpu().numpy())
-        x1_t_pos_list.append(x1_pos_t.detach().cpu().numpy())
-        
-        x2_t_pos_list.append(x2_pos_t.detach().cpu().numpy())
+        if return_trajectories:
+            x1_t_x_list.append(x1_x_t.detach().cpu().numpy())
+            x1_t_bond_edge_x_list.append(x1_bond_edge_x_t.detach().cpu().numpy())
+            x1_t_pos_list.append(x1_pos_t.detach().cpu().numpy())
             
-        x3_t_pos_list.append(x3_pos_t.detach().cpu().numpy())
-        x3_t_x_list.append(x3_x_t.detach().cpu().numpy())
-        
-        x4_t_pos_list.append(x4_pos_t.detach().cpu().numpy())
-        x4_t_direction_list.append(x4_direction_t.detach().cpu().numpy())
-        x4_t_x_list.append(x4_x_t.detach().cpu().numpy())
+            x2_t_pos_list.append(x2_pos_t.detach().cpu().numpy())
+                
+            x3_t_pos_list.append(x3_pos_t.detach().cpu().numpy())
+            x3_t_x_list.append(x3_x_t.detach().cpu().numpy())
+            
+            x4_t_pos_list.append(x4_pos_t.detach().cpu().numpy())
+            x4_t_direction_list.append(x4_direction_t.detach().cpu().numpy())
+            x4_t_x_list.append(x4_x_t.detach().cpu().numpy())
         
         
         # set next state and iterate
@@ -1125,14 +1125,15 @@ def inference_sample(
         x2_t = x2_t - 1
         x3_t = x3_t - 1
         x4_t = x4_t - 1
-    
-        pbar.update(1)
+
+        if verbose:
+            pbar.update(1)
         
         # this is necessary for clearing CUDA memory
         del output_dict
         del input_dict    
-        
-    pbar.close()
+    if verbose:
+        pbar.close()
     
     
     
@@ -1187,6 +1188,31 @@ def inference_sample(
                 'directions': np.split(x4_direction_final, batch_size)[b],
             },
         }
+        if return_trajectories:
+            # Each trajectory frame is stored as a complete dictionary structure
+            generated_dict['trajectories'] = [
+                {
+                    'x1': {
+                        'atoms': np.split(x1_x, batch_size)[b],
+                        'positions': np.split(x1_pos, batch_size)[b],
+                    },
+                    'x2': {
+                        'positions': np.split(x2_pos, batch_size)[b],
+                    },
+                    'x3': {
+                        'charges': np.split(x3_x, batch_size)[b],
+                        'positions': np.split(x3_pos, batch_size)[b],
+                    },
+                    'x4': {
+                        'types': np.split(x4_x, batch_size)[b],
+                        'positions': np.split(x4_pos, batch_size)[b],
+                        'directions': np.split(x4_direction, batch_size)[b],
+                    },
+                }
+                for x1_x, x1_pos, x2_pos, x3_x, x3_pos, x4_x, x4_pos, x4_direction 
+                in zip(x1_t_x_list, x1_t_pos_list, x2_t_pos_list, 
+                       x3_t_x_list, x3_t_pos_list, x4_t_x_list, x4_t_pos_list, x4_t_direction_list)
+            ]
         generated_structures.append(generated_dict)
     
     return generated_structures
