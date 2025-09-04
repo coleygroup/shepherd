@@ -5,25 +5,36 @@ Note that *ShEPhERD* has a sister repository, [shepherd-score](https://github.co
 
 The preprint can be found on arXiv: [ShEPhERD: Diffusing shape, electrostatics, and pharmacophores for bioisosteric drug design](https://arxiv.org/abs/2411.04130)
 
-### **Important** notice for current repository
-This repository has undergone a major refactor to accommodate inference with PyTorch 2.5, primarily for ease-of-use. To maintain reproducibility for training and inference, the original code can be found under commit `c3d5ec0` or the Release titled "Publication code v0.1.0". The model checkpoints used for publication can be found in those binaries or at the following Dropbox [link](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) where training data can also be found. The checkpoints were converted with `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`
-Slight changes have also been made to the training code to adhere to Pytorch Lightning >2.0 and new versions of PyTorch Geometric.
-
-We would like to acknowledge Matthew Cox for his contributions in updating this codebase.
-
 <p align="center">
   <img width="400" src="./docs/images/shepherd_logo.svg">
 </p>
 
 <sub><sup>1</sup> **ShEPhERD**: **S**hape, **E**lectrostatics, and **Ph**armacophores **E**xplicit **R**epresentation **D**iffusion</sub>
 
+### **Important** notice for current repository status
+
+#### UPDATE: June 6, 2025
+This repository has undergone a major refactor to accommodate inference with PyTorch 2.5, primarily for ease-of-use. To maintain reproducibility for training and inference, the original code can be found under commit `ec510b2` or the Release titled "Publication code v0.1.0". The model checkpoints used for publication can be found in those binaries or at the following Dropbox [link](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) where training data can also be found. The checkpoints were converted with `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`.
+Slight changes have also been made to the training code to adhere to Pytorch Lightning >2.0 and new versions of PyTorch Geometric.
+
+We would like to acknowledge Matthew Cox for his contributions in updating this codebase.
+
+#### UPDATE: Sept. 3, 2025
+To reduce the size of the repository, git-filter-repo was used to remove model weights from git history. You can use the new [loading functions](##model-loading) (recommended) to automatically download model weights from our [HuggingFace repo](https://huggingface.co/kabeywar/shepherd) for *ShEPhERD* **>0.2.4**. For older versions, please manually download and place the relevant weights in the `./data/shepherd_chkpts` folder from our [Dropbox](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) or the same HuggingFace repo. More details can be found at `./data/shepherd_chkpts/README.md`.
+
+If you have cloned this repo before, please **re-clone** this repo:
+```
+git clone https://github.com/coleygroup/shepherd.git
+```
+
 ## Table of Contents
 1. [File Structure](##file-structure)
 2. [Environment](##environment)
-3. [Training and inference data](##training-and-inference-data)
-4. [Training](##training)
-5. [Inference](##inference)
-6. [Evaluations](##evaluations)
+3. [Model Loading](##model-loading)
+4. [Training and inference data](##training-and-inference-data)
+5. [Training](##training)
+6. [Inference](##inference)
+7. [Evaluations](##evaluations)
 
 ## File Structure
 
@@ -33,9 +44,9 @@ We would like to acknowledge Matthew Cox for his contributions in updating this 
 │   └── shepherd/
 │       ├── lightning_module.py                 # pytorch-lightning modules
 │       ├── datasets.py                         # torch_geometric dataset class (for training)
-│       ├── inference.py                        # inference functions
 │       ├── extract.py                          # for extracting field properties
 │       ├── shepherd_score_utils/               # dependencies from shepherd-score Github repository
+│       ├── inference/                          # inference functions
 │       └── model/
 │           ├── equiformer_operations.py        # select E3NN operations from (original) Equiformer
 │           ├── equiformer_v2_encoder.py        # slightly customized Equiformer-V2 module
@@ -89,7 +100,7 @@ pandas==2.2.3
 **We** followed these steps to create a suitable conda environment, which worked on our Linux system. Please note that this exact installation procedure may depend on your system, particularly your cuda version.
 
 ```
-conda create -n shepherd python=3.9
+conda create -n shepherd python=3.11
 conda activate shepherd
 pip install uv
 
@@ -110,6 +121,47 @@ conda install xtb
 pip install -e .
 ```
 
+## Model Loading
+
+*ShEPhERD* provides pre-trained model checkpoints that are automatically downloaded from HuggingFace and cached locally. The model weights are compatible with PyTorch Lightning >2.0 and have been converted from the original model weights using `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`. The original model weights can be found at the [Dropbox link](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0).
+
+### Available Models
+
+| Model Type | Description | Training Dataset |
+|------------|-------------|------------------|
+| `mosesaq` | Shape, electrostatics, and pharmacophores | MOSES-aq |
+| `gdb_x2` | Shape conditioning only | GDB17 |
+| `gdb_x3` | Shape and electrostatics | GDB17 |
+| `gdb_x4` | Pharmacophores only | GDB17 |
+
+### Basic Usage
+
+```python
+from shepherd import load_shepherd_model
+
+# Load the default MOSES-aq model (downloads automatically if needed)
+model = load_shepherd_model()
+
+# Load a specific model type
+model = load_shepherd_model('gdb_x3')
+```
+
+### Advanced Usage
+```python
+from shepherd import load_model, clear_model_cache
+
+# Use custom cache directory
+model = load_model(cache_dir='./data/shepherd_chkpts')
+
+# Check for local checkpoints first
+model = load_model(local_data_dir='./data/shepherd_chkpts')
+
+# Clear cached models
+clear_model_cache('mosesaq')  # Clear specific model
+clear_model_cache()  # Clear all models
+```
+
+**Note:** Model weights are downloaded from HuggingFace to the cache directory unless you specify a local directory path (`data/shepherd_chkpts`). The models are automatically cached to avoid repeated downloads.
 
 ## Training and inference data
 `data/conformers/` contains the 3D structures of the natural products, PDB ligands, and fragments that we used in our experiments in the preprint. It also includes the 100 test-set structures from GDB-17 that we used in our conditional generation evaluations. 
@@ -144,6 +196,9 @@ The inference script now supports conditional generation of molecules that conta
 
 This repository does *not* contain the code to evaluate samples from *ShEPhERD* (e.g., evaluate their validity, RMSD upon relaxation, 3D similarity to a target structure, etc). All such evaluations can be found in the sister repository: https://github.com/coleygroup/shepherd-score. These repositories were made separate so that the functions within [shepherd-score](https://github.com/coleygroup/shepherd-score) can be used for more general-purpose applications in ligand-based drug design. We also encourage others to use [shepherd-score](https://github.com/coleygroup/shepherd-score) to evaluate other 3D generative models besides *ShEPhERD*.
 
+
+## App
+There is an easy-to-use app found in `app/`. Please follow the instructions there for local deployment.
 
 ## License
 

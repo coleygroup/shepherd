@@ -146,6 +146,7 @@ def generate(
     verbose: bool = True,
     store_trajectories: bool = False,
     store_trajectories_x0: bool = False,
+    interruption_callback: Optional[callable] = None,
     ) -> list[dict]:
     """
     Runs inference of ShEPhERD to sample `batch_size` number of molecules.
@@ -802,6 +803,12 @@ def generate(
         trajectories_x0 = []
 
     while current_time_idx < len(time_steps) - 1:
+        # Check for interruption
+        if interruption_callback and interruption_callback():
+            if pbar:
+                pbar.close()
+            return []
+            
         current_time_idx, next_state = inference_step(
             current_time_idx=current_time_idx,
             x1_pos_t=x1_pos_t, x1_x_t=x1_x_t, x1_bond_edge_x_t=x1_bond_edge_x_t, x1_batch=x1_batch,
@@ -918,6 +925,7 @@ def generate_from_intermediate_time(
     verbose: bool = True,
     store_trajectories: bool = False,
     store_trajectories_x0: bool = False,
+    interruption_callback: Optional[callable] = None,
     ) -> list[dict]:
     """
     Runs inpainting-based inference of ShEPhERD starting from an intermediate time step.
@@ -1441,6 +1449,12 @@ def generate_from_intermediate_time(
         trajectories_x0 = []
         
     while current_time_idx < len(time_steps) - 1:
+        # Check for interruption
+        if interruption_callback and interruption_callback():
+            if pbar:
+                pbar.close()
+            return []
+            
         current_time_idx, next_state = inference_step(
             current_time_idx=current_time_idx,
             x1_pos_t=x1_pos_t, x1_x_t=x1_x_t, x1_bond_edge_x_t=x1_bond_edge_x_t, x1_batch=x1_batch,

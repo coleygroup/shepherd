@@ -12,9 +12,9 @@ Interactive web interface for **ShEPhERD** (Shape, Electrostatics, and Pharmacop
 
 ### Installation
 ```
-pip install streamlit stmol "shepherd-score>=1.1.1" py3Dmol
+uv pip install streamlit stmol "shepherd-score>=1.1.3" py3Dmol seaborn ipython_genutils
 ```
-NOTE: requires shepherd-score >= 1.1.1 for visualizations
+NOTE: requires shepherd-score >= 1.1.3 for visualizations
 
 ### How to use
 ```

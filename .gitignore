@@ -1,3 +1,7 @@
+# checkpoints
+*.ckpt
+*.bak
+
 # macOS
 *.DS_Store
 
