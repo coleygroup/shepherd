@@ -215,7 +215,7 @@ def get_checkpoint_path(
     # Check for local checkpoint first
     if local_data_dir and not force_download:
         checkpoint_info = MODEL_CHECKPOINTS[model_type]
-        local_path = os.path.join(local_data_dir, 'shepherd_chkpts', checkpoint_info['filename'])
+        local_path = os.path.join(local_data_dir, checkpoint_info['filename'])
 
         if manager.check_local_checkpoint(model_type, local_path):
             print(f"Using local checkpoint: {local_path}")

@@ -255,7 +255,7 @@ def generate_conditional_samples(
             'atom_inds_to_inpaint' : inpaint_atom_indices,
             'stop_inpainting_at_time_x1_pos': 0.0 if stop_inpainting_at_time_x1_pos is None else stop_inpainting_at_time_x1_pos,
             'stop_inpainting_at_time_x1_x': 0.0 if stop_inpainting_at_time_x1_x is None else stop_inpainting_at_time_x1_x,
-            'stop_inpainting_at_time_x1_bonds': 0.0,
+            'stop_inpainting_at_time_x1_bonds': stop_inpainting_at_time_x1_bonds,
         }
     else:
         atom_conditioning_params = {}

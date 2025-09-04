@@ -1,5 +1,4 @@
 # *ShEPhERD* checkpoints for PyTorch 2.5.1
-### Sept. 3, 2025
 Checkpoints have been moved to HuggingFace to reduce repo size. They can be automatically downloaded or manually from here: [https://huggingface.co/kabeywar/shepherd](https://huggingface.co/kabeywar/shepherd).
 
 These checkpoints were converted from the original model weights trained using PyTorch Lightning v1.2 to v2.5.1 using `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`. The original model weights can be found at:
