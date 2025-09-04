@@ -14,7 +14,7 @@ if __name__ == "__main__":
         package_dir={"": "src"},
         packages=setuptools.find_packages(where="src"),
         install_requires=REQUIREMENTS,
-        version="0.2.3",
+        version="0.2.4",
         author="Keir Adams",
         author_email="keir@keiradams.com",
         description="ShEPhERD: Diffusing Shape, Electrostatics, and Pharmacophores for Drug Design.",

@@ -1,3 +1,9 @@
+# September 3, 2025 (v0.2.4)
+### Model loading and repository optimization
+- Added automatic model downloading from HuggingFace Hub with `load_model()`, `get_model_info()`, and `clear_model_cache()` functions
+- Removed model weights from git history to reduce repository size - **users should re-clone the repository**
+- Added ability for interrupting inference with improved UI to Streamlit app
+
 # August 29, 2025 (v0.2.3)
 ### Add Streamlit app for demonstrations
 - Added an easy-to-use app for demonstration purposes
