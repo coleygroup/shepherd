@@ -5,27 +5,27 @@ Note that *ShEPhERD* has a sister repository, [shepherd-score](https://github.co
 
 The preprint can be found on arXiv: [ShEPhERD: Diffusing shape, electrostatics, and pharmacophores for bioisosteric drug design](https://arxiv.org/abs/2411.04130)
 
-### **Important** notice for current repository
-#### 2025 Sept. 3
+<p align="center">
+  <img width="400" src="./docs/images/shepherd_logo.svg">
+</p>
+
+<sub><sup>1</sup> **ShEPhERD**: **S**hape, **E**lectrostatics, and **Ph**armacophores **E**xplicit **R**epresentation **D**iffusion</sub>
+
+### **Important** notice for current repository status
+
+#### UPDATE: June 6, 2025
+This repository has undergone a major refactor to accommodate inference with PyTorch 2.5, primarily for ease-of-use. To maintain reproducibility for training and inference, the original code can be found under commit `ec510b2` or the Release titled "Publication code v0.1.0". The model checkpoints used for publication can be found in those binaries or at the following Dropbox [link](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) where training data can also be found. The checkpoints were converted with `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`.
+Slight changes have also been made to the training code to adhere to Pytorch Lightning >2.0 and new versions of PyTorch Geometric.
+
+We would like to acknowledge Matthew Cox for his contributions in updating this codebase.
+
+#### UPDATE: Sept. 3, 2025
 To reduce the size of the repository, git-filter-repo was used to remove model weights from git history. You can use the new [loading functions](##model-loading) (recommended) to automatically download model weights from our [HuggingFace repo](https://huggingface.co/kabeywar/shepherd) for *ShEPhERD* **>0.2.4**. For older versions, please manually download and place the relevant weights in the `./data/shepherd_chkpts` folder from our [Dropbox](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) or the same HuggingFace repo. More details can be found at `./data/shepherd_chkpts/README.md`.
 
 If you have cloned this repo before, please **re-clone** this repo:
 ```
 git clone https://github.com/coleygroup/shepherd.git
 ```
-
-
-#### 2025 June 6
-This repository has undergone a major refactor to accommodate inference with PyTorch 2.5, primarily for ease-of-use. To maintain reproducibility for training and inference, the original code can be found under commit `ec510b2` or the Release titled "Publication code v0.1.0". The model checkpoints used for publication can be found in those binaries or at the following Dropbox [link](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) where training data can also be found. The checkpoints were converted with `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`.
-Slight changes have also been made to the training code to adhere to Pytorch Lightning >2.0 and new versions of PyTorch Geometric.
-
-We would like to acknowledge Matthew Cox for his contributions in updating this codebase.
-
-<p align="center">
-  <img width="400" src="./docs/images/shepherd_logo.svg">
-</p>
-
-<sub><sup>1</sup> **ShEPhERD**: **S**hape, **E**lectrostatics, and **Ph**armacophores **E**xplicit **R**epresentation **D**iffusion</sub>
 
 ## Table of Contents
 1. [File Structure](##file-structure)
@@ -196,6 +196,9 @@ The inference script now supports conditional generation of molecules that conta
 
 This repository does *not* contain the code to evaluate samples from *ShEPhERD* (e.g., evaluate their validity, RMSD upon relaxation, 3D similarity to a target structure, etc). All such evaluations can be found in the sister repository: https://github.com/coleygroup/shepherd-score. These repositories were made separate so that the functions within [shepherd-score](https://github.com/coleygroup/shepherd-score) can be used for more general-purpose applications in ligand-based drug design. We also encourage others to use [shepherd-score](https://github.com/coleygroup/shepherd-score) to evaluate other 3D generative models besides *ShEPhERD*.
 
+
+## App
+There is an easy-to-use app found in `app/`. Please follow the instructions there for local deployment.
 
 ## License
 
