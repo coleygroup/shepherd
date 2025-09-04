@@ -17,6 +17,7 @@ import pandas as pd
 from stmol import showmol
 
 from shepherd.lightning_module import LightningModule
+from shepherd.checkpoint_manager import get_checkpoint_path
 from shepherd.extract import remove_overlaps
 
 from shepherd_score.visualize import draw_molecule, draw_sample, draw, draw_2d_highlight, draw_2d_valid
@@ -85,6 +86,8 @@ def initialize_session_state():
         'intermediate_start_time': 0.5,
         'new_atom_placement_region': None,
         'new_atom_placement_radius': 1.5,
+        'stop_generation': False,
+        'generation_in_progress': False,
     }
     
     for key, default_value in session_defaults.items():
@@ -94,27 +97,30 @@ def initialize_session_state():
 # Load model function (cached)
 @st.cache_resource
 def load_model(model_type: Literal['mosesaq', 'gdb_x2', 'gdb_x3', 'gdb_x4'] = 'mosesaq'):
-    """Load the correct ShEPhERD model"""
-    if model_type == 'mosesaq':
-        model_path = os.path.join(DATA_DIR, 'shepherd_chkpts/x1x3x4_diffusion_mosesaq_20240824_submission.ckpt')
-    elif model_type == 'gdb_x2':
-        model_path = os.path.join(DATA_DIR, 'shepherd_chkpts/x1x2_diffusion_gdb17_20240824_submission.ckpt')
-    elif model_type == 'gdb_x3':
-        model_path = os.path.join(DATA_DIR, 'shepherd_chkpts/x1x3_diffusion_gdb17_20240824_submission.ckpt')
-    elif model_type == 'gdb_x4':
-        model_path = os.path.join(DATA_DIR, 'shepherd_chkpts/x1x4_diffusion_gdb17_20240824_submission.ckpt')
-    else:
-        raise ValueError(f"Invalid model type: {model_type}")
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_pl = LightningModule.load_from_checkpoint(
-        model_path,
-        weights_only=True,
-        map_location=device
-    )
-    model_pl.eval()
-    model_pl.model.device = device
-    return model_pl
+    """Load the correct ShEPhERD model with automatic checkpoint downloading"""
+    try:
+        # Get checkpoint path - will download from HuggingFace if not found locally
+        model_path = get_checkpoint_path(
+            model_type=model_type,
+            local_data_dir=os.path.join(DATA_DIR, 'shepherd_chkpts'),  # Check local directory first
+            cache_dir=None, # fallback to HuggingFace cache
+            force_download=False
+        )
+        
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model_pl = LightningModule.load_from_checkpoint(
+            model_path,
+            weights_only=True,
+            map_location=device
+        )
+        model_pl.eval()
+        model_pl.model.device = device
+        return model_pl
+        
+    except Exception as e:
+        st.error(f"Failed to load model {model_type}: {str(e)}")
+        st.info("If this is your first time running the app, the model will be downloaded from Hugging Face.")
+        raise
 
 
 @st.cache_data
@@ -141,7 +147,8 @@ def clear_session_state():
         'results_df', 'evaluation_results', 'inpaint_atoms', 
         'stop_inpainting_at_time_x1_pos', 'stop_inpainting_at_time_x1_x', 
         'do_inpaint_atoms', 'exit_vector_indices', 'inpaint_from_intermediate_time',
-        'intermediate_start_time', 'new_atom_placement_region', 'new_atom_placement_radius'
+        'intermediate_start_time', 'new_atom_placement_region', 'new_atom_placement_radius',
+        'stop_generation', 'generation_in_progress'
     ]
     
     for key in session_keys:
@@ -153,6 +160,8 @@ def clear_session_state():
     st.session_state.inpaint_from_intermediate_time = False
     st.session_state.intermediate_start_time = 0.3
     st.session_state.new_atom_placement_radius = 1.5
+    st.session_state.stop_generation = False
+    st.session_state.generation_in_progress = False
 
 
 def main():
@@ -320,8 +329,22 @@ def main():
             num_pharmacophores = st.slider("Number of pharmacophores", min_value=5,
                                         max_value=25, value=10, help=pharm_help)
 
-        # Generate button
-        generate_button = st.button("Generate", type="primary", help="Generates a batch of molecules with ShEPhERD")
+        # Show different UI based on generation state
+        if not st.session_state.generation_in_progress:
+            # Normal state - show generate button
+            generate_button = st.button("Generate", type="primary", help="Generates a batch of molecules with ShEPhERD")
+        else:
+            # Generation in progress - show disabled generate and stop button
+            st.button("Generate", type="primary", help="Generation in progress...", disabled=True)
+            col_stop1, col_stop2 = st.columns([1, 3])
+            with col_stop1:
+                if st.button("🛑 Stop", type="secondary", help="Stop the current generation process"):
+                    st.session_state.stop_generation = True
+                    st.rerun()
+            with col_stop2:
+                st.info("Generation in progress... Click stop to interrupt.")
+            generate_button = False  # Ensure we don't trigger generation logic
+        
         st.session_state.do_inpaint_atoms = st.checkbox("Inpaint Atoms (beta)", value=False, help="Inpaint the selected atoms (still in development)", disabled=st.session_state.inpaint_atoms is None)
 
     ########################################################
@@ -541,11 +564,26 @@ def main():
     # Conditional Generation
     ########################################################
 
+    # Handle generation start
     if generate_button:
         if 'molec' not in st.session_state or st.session_state.molec is None:
             st.error("Please run xTB first to get the interaction profile")
             st.stop()
 
+        # Set generation state and rerun to show stop button
+        st.session_state.stop_generation = False
+        st.session_state.generation_in_progress = True
+        st.rerun()
+    
+    # Handle stop request
+    if st.session_state.generation_in_progress and st.session_state.stop_generation:
+        st.warning("Generation stopped by user")
+        st.session_state.generation_in_progress = False
+        st.session_state.stop_generation = False
+        st.rerun()
+    
+    # Handle generation execution (when in progress and not stopped)
+    if st.session_state.generation_in_progress and not st.session_state.stop_generation:
         try:
             with st.spinner("Loading ShEPhERD model..."):
                 # Load the appropriate model
@@ -594,36 +632,49 @@ def main():
                     new_atom_placement_radius=st.session_state.new_atom_placement_radius if st.session_state.inpaint_from_intermediate_time else 1.5
                 )
                 end_time = time.time()
-            st.success(f"Generated {len(generated_samples)} samples in {end_time - start_time:.2f} seconds")
             
-            st.session_state.generated_samples = generated_samples
+            # Check if generation was stopped
+            if st.session_state.stop_generation:
+                st.warning("Generation was stopped by user")
+                st.session_state.generated_samples = None
+            elif len(generated_samples) == 0:
+                st.warning("No samples were generated (possibly stopped early)")
+                st.session_state.generated_samples = None
+            else:
+                st.success(f"Generated {len(generated_samples)} samples in {end_time - start_time:.2f} seconds")
+                st.session_state.generated_samples = generated_samples
 
-            # Evaluate the generated samples
-            with st.spinner("Evaluating generated samples..."):
-                if st.session_state.inpaint_atoms is not None and st.session_state.do_inpaint_atoms:
-                    new_generated_samples = []
-                    for generated_sample in generated_samples:
-                        new_generated_samples.append(
-                            remove_overlaps(generated_sample,
-                                            st.session_state.molec.mol.GetConformer().GetPositions()[st.session_state.inpaint_atoms],
-                                            cutoff=0.7)
-                        )
-                    st.session_state.generated_samples = new_generated_samples
-                cond_evals, results_df = evaluate_conditional_samples(st.session_state.generated_samples, st.session_state.molec)
-                st.session_state.cond_evals = cond_evals
-                st.session_state.results_df = results_df
+            # Evaluate the generated samples (only if we have samples)
+            if st.session_state.generated_samples is not None and len(st.session_state.generated_samples) > 0:
+                with st.spinner("Evaluating generated samples..."):
+                    if st.session_state.inpaint_atoms is not None and st.session_state.do_inpaint_atoms:
+                        new_generated_samples = []
+                        for generated_sample in st.session_state.generated_samples:
+                            new_generated_samples.append(
+                                remove_overlaps(generated_sample,
+                                                st.session_state.molec.mol.GetConformer().GetPositions()[st.session_state.inpaint_atoms],
+                                                cutoff=0.7)
+                            )
+                        st.session_state.generated_samples = new_generated_samples
+                    cond_evals, results_df = evaluate_conditional_samples(st.session_state.generated_samples, st.session_state.molec)
+                    st.session_state.cond_evals = cond_evals
+                    st.session_state.results_df = results_df
 
-            # Debug: Show error information if available
-            if 'Error' in results_df.columns and results_df['Error'].notna().any():
-                with st.expander("🔍 Debug: Show evaluation errors"):
-                    st.write("Found errors during evaluation:")
-                    error_rows = results_df[results_df['Error'].notna()]
-                    for idx, row in error_rows.iterrows():
-                        st.error(f"Sample {idx}: {str(row['Error'])[:200]}...")
+                # Debug: Show error information if available
+                if st.session_state.results_df is not None and 'Error' in st.session_state.results_df.columns and st.session_state.results_df['Error'].notna().any():
+                    with st.expander("🔍 Debug: Show evaluation errors"):
+                        st.write("Found errors during evaluation:")
+                        error_rows = st.session_state.results_df[st.session_state.results_df['Error'].notna()]
+                        for idx, row in error_rows.iterrows():
+                            st.error(f"Sample {idx}: {str(row['Error'])[:200]}...")
 
         except Exception as e:
             st.error(f"Error during generation: {str(e)}")
             st.exception(e)
+        finally:
+            # Always reset generation state when done
+            st.session_state.generation_in_progress = False
+            st.session_state.stop_generation = False
 
     ########################################################
     # Results section - Conditional Generation
@@ -655,7 +706,7 @@ def main():
                 st.metric("Best Pharm Sim", f"{st.session_state.results_df['Pharm. Similarity'].max():.2f}")
 
             # Display the results table
-            st.dataframe(st.session_state.results_df, use_container_width=True)
+            st.dataframe(st.session_state.results_df, width='stretch')
 
         if st.session_state.cond_evals is not None:
             try:
@@ -675,7 +726,16 @@ def main():
                             captions=["All outputs directly from ShEPhERD", "Molecule post-relaxation\nPrior to alignment so similarity scores are not applicable."])
         sample_idx = st.number_input("Select a sample", min_value=0, max_value=len(st.session_state.generated_samples) - 1, value=0, step=1)
         if use_sample == "Sampled":
-            view = draw_sample(st.session_state.generated_samples[sample_idx], height=400, width=600, custom_carbon_color='dark slate grey')
+            if model_type == "MOSES-aq":
+                model_type_ = "all"
+            elif model_type == "GDB-x2":
+                model_type_ = "x2"
+            elif model_type == "GDB-x3":
+                model_type_ = "x3"
+            elif model_type == "GDB-x4":
+                model_type_ = "x4"
+            view = draw_sample(st.session_state.generated_samples[sample_idx],
+                               height=400, width=600, custom_carbon_color='dark slate grey', model_type=model_type_)
             # Add reference molecule as overlay (model 1) with transparency
             if st.session_state.molec and st.session_state.molec.mol:
                 try:

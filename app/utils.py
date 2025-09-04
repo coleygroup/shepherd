@@ -91,6 +91,13 @@ def evaluate_conditional_samples(conditional_samples, molec: Molecule):
     cond_evals = []
 
     for i, sample in enumerate(conditional_samples):
+        # Check for interruption during evaluation too
+        if st.session_state.get('stop_generation', False):
+            status_text.text("Evaluation stopped by user")
+            progress_bar.empty()
+            status_text.empty()
+            break
+            
         cond_eval = None
         sample_data = {}
         try:
@@ -291,6 +298,8 @@ def generate_conditional_samples(
             pharm_pos=molec.pharm_ancs,
             pharm_direction=molec.pharm_vecs,
             verbose=True,
+            # Add interruption callback
+            interruption_callback=lambda: st.session_state.get('stop_generation', False),
         )
 
     else:
@@ -311,6 +320,8 @@ def generate_conditional_samples(
             pharm_pos=molec.pharm_ancs,
             pharm_direction=molec.pharm_vecs,
             verbose=True,
+            # Add interruption callback
+            interruption_callback=lambda: st.session_state.get('stop_generation', False),
         )
 
     return generated_samples
