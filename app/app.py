@@ -88,6 +88,7 @@ def initialize_session_state():
         'new_atom_placement_radius': 1.5,
         'stop_generation': False,
         'generation_in_progress': False,
+        'num_sampling_steps': 400,
     }
     
     for key, default_value in session_defaults.items():
@@ -148,7 +149,7 @@ def clear_session_state():
         'stop_inpainting_at_time_x1_pos', 'stop_inpainting_at_time_x1_x', 
         'do_inpaint_atoms', 'exit_vector_indices', 'inpaint_from_intermediate_time',
         'intermediate_start_time', 'new_atom_placement_region', 'new_atom_placement_radius',
-        'stop_generation', 'generation_in_progress'
+        'stop_generation', 'generation_in_progress', 'num_sampling_steps'
     ]
     
     for key in session_keys:
@@ -328,6 +329,17 @@ def main():
         else:
             num_pharmacophores = st.slider("Number of pharmacophores", min_value=5,
                                         max_value=25, value=10, help=pharm_help)
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            if st.session_state.do_inpaint_atoms:
+                num_sampling_steps = st.number_input("Number of sampling steps (trained for 400)", min_value=100, max_value=400, value=400, step=50,
+                    help="Number of total time steps to run the sampler for. ShEPhERD was trained with 400, but is can still yield decent results with 200 (2x faster). Fixed at 400 for atom inpainting.",
+                    disabled=True)
+            else:
+                num_sampling_steps = st.number_input("Number of sampling steps (trained for 400)", min_value=100, max_value=400, value=400, step=50,
+                    help="Number of total time steps to run the sampler for. ShEPhERD was trained with 400, but is can still yield decent results with 200 (2x faster).")
+            st.session_state.num_sampling_steps = num_sampling_steps
 
         # Show different UI based on generation state
         if not st.session_state.generation_in_progress:
@@ -629,7 +641,8 @@ def main():
                     intermediate_time=st.session_state.inpaint_from_intermediate_time and st.session_state.inpaint_atoms is not None and st.session_state.do_inpaint_atoms,
                     start_time=st.session_state.intermediate_start_time if st.session_state.inpaint_from_intermediate_time else 0.0,
                     new_atom_placement_region=st.session_state.new_atom_placement_region if st.session_state.inpaint_from_intermediate_time else None,
-                    new_atom_placement_radius=st.session_state.new_atom_placement_radius if st.session_state.inpaint_from_intermediate_time else 1.5
+                    new_atom_placement_radius=st.session_state.new_atom_placement_radius if st.session_state.inpaint_from_intermediate_time else 1.5,
+                    num_sampling_steps=st.session_state.num_sampling_steps
                 )
                 end_time = time.time()
             
