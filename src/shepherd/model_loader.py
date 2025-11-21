@@ -34,7 +34,8 @@ def load_model(
     local_data_dir: Directory containing local checkpoints (for backward compatibility)
     cache_dir: Directory to cache downloaded checkpoints (None uses default HF cache)
     force_download: Whether to force download even if local checkpoint exists
-    verbose: Whether to print verbose output
+    local_checkpoint_path: Path to local checkpoint
+        If this is provided, it will override the model type and download logic.
 
     Returns
     -------
