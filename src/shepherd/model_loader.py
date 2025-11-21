@@ -15,6 +15,7 @@ def load_model(
     local_data_dir: Optional[str] = None,
     cache_dir: Optional[str] = None,
     force_download: bool = False,
+    local_checkpoint_path: Optional[str] = None,
 ) -> LightningModule:
     """
     Load a ShEPhERD model with automatic checkpoint downloading.
@@ -52,6 +53,23 @@ def load_model(
     """
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if local_checkpoint_path is not None:
+        try:
+            device_obj = torch.device(device)
+            model_pl = LightningModule.load_from_checkpoint(
+                local_checkpoint_path,
+                weights_only=True,
+                map_location=device_obj
+            )
+
+            model_pl.eval()
+            model_pl.model.device = device_obj
+
+            print(f"Successfully loaded {model_type} model from local checkpoint.")
+            return model_pl
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model from local checkpoint: {str(e)}") from e
 
     try:
         # Get checkpoint path with automatic downloading
