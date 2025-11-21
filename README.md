@@ -14,7 +14,7 @@ The preprint can be found on arXiv: [ShEPhERD: Diffusing shape, electrostatics, 
 ### **Important** notice for current repository status
 
 #### UPDATE: June 6, 2025
-This repository has undergone a major refactor to accommodate inference with PyTorch 2.5, primarily for ease-of-use. To maintain reproducibility for training and inference, the original code can be found under commit `ec510b2` or the Release titled "Publication code v0.1.0". The model checkpoints used for publication can be found in those binaries or at the following Dropbox [link](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) where training data can also be found. The checkpoints were converted with `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`.
+This repository has undergone a major refactor to accommodate inference with PyTorch >=2.0, primarily for ease-of-use. To maintain reproducibility for training and inference, the original code can be found under commit `ec510b2` or the Release titled "Publication code v0.1.0". The model checkpoints used for publication can be found in those binaries or at the following Dropbox [link](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) where training data can also be found. The checkpoints were converted with `python -m pytorch_lightning.utilities.upgrade_checkpoint <chkpt_path>`.
 Slight changes have also been made to the training code to adhere to Pytorch Lightning >2.0 and new versions of PyTorch Geometric.
 
 We would like to acknowledge Matthew Cox for his contributions in updating this codebase.
@@ -22,10 +22,7 @@ We would like to acknowledge Matthew Cox for his contributions in updating this 
 #### UPDATE: Sept. 3, 2025
 To reduce the size of the repository, git-filter-repo was used to remove model weights from git history. You can use the new [loading functions](##model-loading) (recommended) to automatically download model weights from our [HuggingFace repo](https://huggingface.co/kabeywar/shepherd) for *ShEPhERD* **>0.2.4**. For older versions, please manually download and place the relevant weights in the `./data/shepherd_chkpts` folder from our [Dropbox](https://www.dropbox.com/scl/fo/rgn33g9kwthnjt27bsc3m/ADGt-CplyEXSU7u5MKc0aTo?rlkey=fhi74vkktpoj1irl84ehnw95h&e=1&st=wn46d6o2&dl=0) or the same HuggingFace repo. More details can be found at `./data/shepherd_chkpts/README.md`.
 
-If you have cloned this repo before, please **re-clone** this repo:
-```
-git clone https://github.com/coleygroup/shepherd.git
-```
+If you have cloned this repo before, please **re-clone** this repo: `git clone https://github.com/coleygroup/shepherd.git`
 
 ## Table of Contents
 1. [File Structure](##file-structure)
@@ -62,6 +59,8 @@ git clone https://github.com/coleygroup/shepherd.git
 │   ├── shepherd_chkpts/                        # trained model checkpoints (from pytorch lightning)
 │   └── conformers/                             # conditional target structures for experiments, and (sample) training data
 ├── examples/                                   # examples and experiments
+│   ├── conditional_generation.ipynb            # Jupyter notebook for generation conditional generation
+│   ├── atom_inpainting_demonstration.ipynb     # Jupyter notebook for atom-inpainting example
 │   ├── RUNME_conditional_generation_MOSESaq.ipynb  # Jupyter notebook for conditional generation
 │   ├── RUNME_unconditional_generation.ipynb    # Jupyter notebook for unconditional generation
 │   ├── basic_inference/                        # basic inference example
@@ -97,7 +96,7 @@ pandas==2.2.3
 
 `environment.yml` contains the updated conda environment for *ShEPhERD* and compatibility with PyTorch >=2.5.
 
-**We** followed these steps to create a suitable conda environment, which worked on our Linux system. Please note that this exact installation procedure may depend on your system, particularly your cuda version.
+**We** followed these steps to create a suitable conda environment, which worked on our Linux system. While we recommend following the instructions below, please note that this exact installation procedure may depend on your system, particularly your cuda version.
 
 ```
 conda create -n shepherd python=3.11
@@ -105,20 +104,18 @@ conda activate shepherd
 pip install uv
 
 # download pytorch considering your cuda version
-uv pip install torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-uv pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-2.5.0+cu124.html
+uv pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+uv pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
 
-uv pip install pytorch-lightning
-uv pip install pandas==2.2.3
+uv pip install pytorch-lightning pandas==2.2.3 rdkit==2024.09.6 open3d matplotlib jupyterlab
 
-uv pip install rdkit==2024.09.6 open3d matplotlib jupyterlab
 # There may be issues the environment does not set up xTB properly.
 #  If this is the case, please install from source.
 conda install xtb
 
 # cd to this repo and do a developer install
 #  This will install additional requirements found in .toml and not covered above
-pip install -e .
+uv pip install -e .
 ```
 
 ## Model Loading
@@ -137,28 +134,13 @@ pip install -e .
 ### Basic Usage
 
 ```python
-from shepherd import load_shepherd_model
+from shepherd import load_model
 
 # Load the default MOSES-aq model (downloads automatically if needed)
-model = load_shepherd_model()
+model = load_model()
 
 # Load a specific model type
-model = load_shepherd_model('gdb_x3')
-```
-
-### Advanced Usage
-```python
-from shepherd import load_model, clear_model_cache
-
-# Use custom cache directory
-model = load_model(cache_dir='./data/shepherd_chkpts')
-
-# Check for local checkpoints first
-model = load_model(local_data_dir='./data/shepherd_chkpts')
-
-# Clear cached models
-clear_model_cache('mosesaq')  # Clear specific model
-clear_model_cache()  # Clear all models
+model = load_model('gdb_x3')
 ```
 
 **Note:** Model weights are downloaded from HuggingFace to the cache directory unless you specify a local directory path (`data/shepherd_chkpts`). The models are automatically cached to avoid repeated downloads.
@@ -185,11 +167,12 @@ The trained checkpoints in `data/shepherd_chkpts/` were obtained after training 
 
 ## Inference
 
-The simplest way to run inference is to follow the Jupyter notebooks `examples/RUNME_unconditional_generation.ipynb` and `examples/RUNME_conditional_generation_MOSESaq.ipynb`. 
+Examples for generation can be found in `examples/`. 
+The notebooks `examples/conditional_generation.ipynb` and `examples/atom_inpainting_demonstration.ipynb` walk through the general use cases of conditional generation on an arbitrary target molecule and scaffold decoration. To get a sense of how experiments were run, please follow the Jupyter notebooks `examples/RUNME_unconditional_generation.ipynb` and `examples/RUNME_conditional_generation_MOSESaq.ipynb`. 
 
 `examples/paper_experiments/` also contain scripts that we used to run the experiments in our preprint. Some of the scripts (`examples/paper_experiments/run_inference_*_unconditional_*_.py`) take a few additional command-line arguments, which are detailed in those corresponding scripts by argparse commands.
 
-The inference script now supports conditional generation of molecules that contain a superset of the target profile's pharmacophores via partial inpainting. [1/13/2025]
+The inference script now supports conditional generation of molecules that contain a superset of the target profile's pharmacophores via partial inpainting [1/2025], atom-inpainting [8/2025], and using a smaller number of sampling steps [11/2025].
 
 
 ## Evaluations
