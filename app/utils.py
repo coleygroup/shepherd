@@ -48,11 +48,11 @@ def conformer_charges(mol: Chem.Mol, optimize: bool = False) -> tuple:
     """
     Generate charges for a molecule.
     """
-    orig_partial_charges = charges_from_single_point_conformer_with_xtb(mol)
+    orig_partial_charges = charges_from_single_point_conformer_with_xtb(mol, solvent='water', charge=Chem.GetFormalCharge(mol), temp_dir=tmp_dir)
     if not optimize:
         return None, orig_partial_charges, None
     
-    opt_mol, _, opt_partial_charges = optimize_conformer_with_xtb(mol, solvent='water', temp_dir=tmp_dir)
+    opt_mol, _, opt_partial_charges = optimize_conformer_with_xtb(mol, solvent='water', charge=Chem.GetFormalCharge(mol), temp_dir=tmp_dir)
 
     return opt_mol, orig_partial_charges, opt_partial_charges
 
@@ -174,6 +174,7 @@ def generate_conditional_samples(
     start_time: float = 0.0,
     new_atom_placement_region: np.ndarray | None = None,
     new_atom_placement_radius: float = 1.5,
+    num_sampling_steps: int = 400,
 ):
     """
     Generate conditional samples using shepherd.sampler.generate function.
@@ -298,6 +299,7 @@ def generate_conditional_samples(
             pharm_pos=molec.pharm_ancs,
             pharm_direction=molec.pharm_vecs,
             verbose=True,
+            num_steps=num_sampling_steps,
             # Add interruption callback
             interruption_callback=lambda: st.session_state.get('stop_generation', False),
         )

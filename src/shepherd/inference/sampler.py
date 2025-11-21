@@ -26,7 +26,8 @@ from shepherd.inference.initialization import (
 from shepherd.inference.noise import (
     forward_trajectory,
     _get_noise_params_for_timestep,
-    forward_jump
+    forward_jump,
+    subsample_noise_schedule
 )
 from shepherd.inference.steps import (
     _perform_reverse_denoising_step,
@@ -142,6 +143,8 @@ def generate(
     pharm_pos: np.ndarray = np.zeros((5,3)),
     pharm_direction: np.ndarray = np.zeros((5,3)),
 
+    num_steps: int = 400,
+
     # Other options for inference
     verbose: bool = True,
     store_trajectories: bool = False,
@@ -244,6 +247,8 @@ def generate(
     pharm_direction : np.ndarray (<=N_x4,3) (default = np.zeros((5,3))) Pharmacophore directions as
         unit vectors.
 
+    num_steps : int (default = 400) Number of time steps to run the sampler for.
+
     save_intermediate : bool (default=False)
         whether to save intermediates --> not implemented
 
@@ -293,7 +298,14 @@ def generate(
     params = model_pl.params
 
     T = params['noise_schedules']['x1']['ts'].max()
-    time_steps = np.arange(T, 0, -1) # Full sequence [T, T-1, ..., 1]
+    assert num_steps <= T, f"num_steps must be <= T, got {num_steps} and {T}"
+
+    if num_steps != T:
+        noise_schedule = subsample_noise_schedule(num_steps, params['noise_schedules'])
+        params['noise_schedules'] = noise_schedule
+        time_steps = noise_schedule['x1']['ts'][::-1]
+    else:
+        time_steps = np.arange(T, 0, -1) # Full sequence [T, T-1, ..., 1]
 
     N_x2 = params['dataset']['x2']['num_points']
     N_x3 = params['dataset']['x3']['num_points']
