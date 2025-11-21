@@ -223,3 +223,34 @@ def _get_noise_params_for_timestep(params, t):
         noise_params[mod] = mod_params
 
     return noise_params
+
+
+def subsample_noise_schedule(num_steps: int, noise_schedule: dict):
+    """
+    Subsample the noise schedule to a given number of steps.
+    Keep the last step of the original schedule.
+
+    Arguments
+    ---------
+    num_steps: The number of steps to subsample to.
+    noise_schedule: The noise schedule to subsample.
+
+    Returns
+    -------
+    noise_schedule: The subsampled noise schedule.
+    """
+    new_noise_schedule = {}
+    assert num_steps <= noise_schedule['x1']['T']
+    assert num_steps > 0
+    t_inds = np.linspace(0, len(noise_schedule['x1']['ts'])-1, num_steps, dtype=int)
+
+    for modality in noise_schedule.keys():
+        if modality not in new_noise_schedule:
+            new_noise_schedule[modality] = {}
+        for key in noise_schedule[modality].keys():
+            if key == 'T':
+                new_noise_schedule[modality][key] = noise_schedule[modality][key]
+                continue
+            else:
+                new_noise_schedule[modality][key] = noise_schedule[modality][key][t_inds]
+    return new_noise_schedule
