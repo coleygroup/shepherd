@@ -430,7 +430,7 @@ class Model(torch.nn.Module):
             assert x2_decoder_encoder_params['input_sphere_channels'] == x2_decoder_encoder_params['sphere_channels']
             self.x2_decoder_encoder = EquiformerV2(
                     
-                    final_block_channels = params['x2']['decoder']['encoder']['sphere_channels'] + params['x3']['decoder']['encoder']['sphere_channels'] if (self.combine_x2_x3_convolution_decoder) else 0,
+                    final_block_channels = 0,
                     
                     num_layers = x2_decoder_encoder_params['num_layers'],
                     input_sphere_channels = x2_decoder_encoder_params['input_sphere_channels'],
