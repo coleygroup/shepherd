@@ -86,37 +86,28 @@ If you have cloned this repo before, please **re-clone** this repo: `git clone h
 python>=3.9
 rdkit>=2023.03,<2025.03
 torch>=2.5.1
-numpy>1.2,<2.0
 open3d>=0.18
 xtb>=6.6
-pandas==2.2.3
 ```
 
-### Example Environment set-up
+### Installation
 
-`environment.yml` contains the updated conda environment for *ShEPhERD* and compatibility with PyTorch >=2.5.
-
-**We** followed these steps to create a suitable conda environment, which worked on our Linux system. While we recommend following the instructions below, please note that this exact installation procedure may depend on your system, particularly your cuda version.
-
+In a virtual environment with `python>=3.9,<3.12` (e.g., python, uv, conda) we followed these instructions:
 ```
-conda create -n shepherd python=3.11
-conda activate shepherd
-pip install uv
-
-# download pytorch considering your cuda version
+# Download PyTorch and PyG dependencies considering your cuda version
 uv pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 uv pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
 
-uv pip install pytorch-lightning pandas==2.2.3 rdkit==2024.09.6 open3d matplotlib jupyterlab
-
-# There may be issues the environment does not set up xTB properly.
-#  If this is the case, please install from source.
-conda install xtb
-
 # cd to this repo and do a developer install
-#  This will install additional requirements found in .toml and not covered above
 uv pip install -e .
+
+# [Optional] For evaluation pipelines, install `shepherd-score`
+uv pip install shepherd-score
 ```
+
+[Install xTB](https://xtb-docs.readthedocs.io/en/latest/setup.html) from source.
+
+An example `environment.yml` is provided for a conda environment for `torch==2.5.1` built on our Linux system for CUDA 12.4.
 
 ## Model Loading
 

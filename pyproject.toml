@@ -10,18 +10,21 @@ authors = [
     {name = "Keir Adams"},
     {name = "Kento Abeywardane", email = "kento@mit.edu"}
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9,<3.12"
+
 dependencies = [
     "torch",
     "torch-geometric",
     "pytorch-lightning",
-    "rdkit",
+    "rdkit==2024.09.6",
     "e3nn",
-    "open3d",
+    "open3d==0.18",
     "numpy",
     "matplotlib",
     "tqdm",
     "huggingface-hub",
+    "pandas==2.2.3",
+    "jupyterlab",
 ]
 
 [tool.setuptools]
