@@ -1,9 +1,9 @@
 """
-Standalone model loader for ShEPhERD that works outside of Streamlit.
+Handles loading and managing ShEPhERD models.
+If model weights are not found locally, they are automatically downloaded from HuggingFace.
 """
 import torch
 from typing import Literal, Optional
-from pathlib import Path
 
 from shepherd.lightning_module import LightningModule
 from shepherd.checkpoint_manager import get_checkpoint_path
@@ -16,6 +16,7 @@ def load_model(
     cache_dir: Optional[str] = None,
     force_download: bool = False,
     local_checkpoint_path: Optional[str] = None,
+    weights_only: bool = False,
 ) -> LightningModule:
     """
     Load a ShEPhERD model with automatic checkpoint downloading.
@@ -36,6 +37,8 @@ def load_model(
     force_download: Whether to force download even if local checkpoint exists
     local_checkpoint_path: Path to local checkpoint
         If this is provided, it will override the model type and download logic.
+    weights_only: Whether to load only the model weights (True) or the full checkpoint (False)
+        If pytorch >v2.6.0, must be False.
 
     Returns
     -------
@@ -60,8 +63,8 @@ def load_model(
             device_obj = torch.device(device)
             model_pl = LightningModule.load_from_checkpoint(
                 local_checkpoint_path,
-                weights_only=True,
-                map_location=device_obj
+                weights_only=weights_only,
+                map_location=device_obj,
             )
 
             model_pl.eval()
@@ -87,8 +90,8 @@ def load_model(
         device_obj = torch.device(device)
         model_pl = LightningModule.load_from_checkpoint(
             model_path,
-            weights_only=True,
-            map_location=device_obj
+            map_location=device_obj,
+            weights_only=weights_only,
         )
 
         model_pl.eval()
