@@ -83,7 +83,7 @@ If you have cloned this repo before, please **re-clone** this repo: `git clone h
 
 ### Requirements
 ```
-python>=3.9
+python>=3.9,<3.12
 rdkit>=2023.03,<2025.03
 torch>=2.5.1
 open3d>=0.18
